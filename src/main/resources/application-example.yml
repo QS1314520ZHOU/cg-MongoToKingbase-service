@@ -1,0 +1,84 @@
+# ========================================
+# MongoDB to Kingbase 同步服务配置示例
+# ========================================
+
+server:
+  port: 8080
+
+# ========================================
+# MongoDB配置
+# ========================================
+mongo:
+  # MongoDB服务器地址
+  host: 10.35.4.12
+  # MongoDB端口
+  port: 32121
+  # 数据库名称
+  database: SmartCare
+  # 用户名
+  username: admin
+  # 密码
+  password: "Dxm99*"
+  # 认证数据库
+  auth-database: admin
+  # 连接超时（毫秒）
+  connection-timeout: 30000
+  # Socket超时（毫秒）
+  socket-timeout: 60000
+
+# ========================================
+# Kingbase配置
+# ========================================
+kingbase:
+  # JDBC连接URL（Kingbase兼容PostgreSQL协议）
+  url: jdbc:postgresql://10.35.4.12:54321/kingbase
+  # 用户名
+  username: system
+  # 密码
+  password: "chc3Xz3PS4N^x"
+  # 驱动类名（使用PostgreSQL驱动）
+  driver-class-name: org.postgresql.Driver
+  # 最大连接池大小
+  max-pool-size: 10
+  # 最小空闲连接数
+  min-idle: 5
+
+# ========================================
+# 同步配置
+# ========================================
+sync:
+  # 定时任务cron表达式（每天凌晨2点执行）
+  cron-expression: "0 0 2 * * ?"
+  # 需要同步的表列表
+  tables:
+    - bedside
+  # 批量大小
+  batch-size: 1000
+  # 是否启用定时同步
+  enable: true
+  # 同步前是否删除目标表
+  drop-table-before-sync: false
+  # 如果目标表不存在是否创建
+  create-table-if-not-exists: true
+  # 同步模式：full（全量）或 incremental（增量）
+  sync-mode: incremental
+  # 增量同步时使用的时间字段（增量模式下必填）
+  timestamp-field: ""
+  # MongoDB中的编辑时间字段（用于判断是否需要更新）
+  edit-time-field: editTime
+  # Kingbase中的同步时间字段名
+  sync-field-name: MongoToKingDate
+
+# ========================================
+# 日志配置
+# ========================================
+logging:
+  level:
+    root: INFO
+    com.sync: DEBUG
+    org.springframework: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/sync-service.log
