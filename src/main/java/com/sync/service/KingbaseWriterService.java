@@ -57,9 +57,15 @@ public class KingbaseWriterService {
             List<String> columnDefs = new ArrayList<>();
             for (Map.Entry<String, String> entry : columns.entrySet()) {
                 String colName = entry.getKey().replaceAll("[^a-zA-Z0-9_]", "_");
+                // 处理SQL保留关键字
+                colName = escapeReservedKeyword(colName);
                 String colType = mapMongoTypeToKingbase(entry.getValue());
                 columnDefs.add("    " + colName + " " + colType);
             }
+
+            // 添加mongo_id唯一约束（使用表名作为前缀，确保约束名唯一）
+            String constraintName = "uk_" + tableName.toLowerCase() + "_mongo_id";
+            columnDefs.add("    CONSTRAINT " + constraintName + " UNIQUE (mongo_id)");
 
             sql.append(String.join(",\n", columnDefs));
             sql.append("\n)");
@@ -73,6 +79,76 @@ public class KingbaseWriterService {
             logger.error("Failed to create table {}: {}", tableName, e.getMessage(), e);
             throw e;
         }
+    }
+
+    /**
+     * 转义SQL保留关键字
+     */
+    private String escapeReservedKeyword(String columnName) {
+        // SQL保留关键字列表
+        java.util.Set<String> reservedKeywords = new java.util.HashSet<>(java.util.Arrays.asList(
+            "desc", "select", "insert", "update", "delete", "from", "where",
+            "order", "group", "by", "having", "limit", "offset", "as",
+            "and", "or", "not", "in", "between", "like", "is", "null",
+            "true", "false", "case", "when", "then", "else", "end",
+            "join", "left", "right", "inner", "outer", "on", "using",
+            "union", "all", "distinct", "exists", "any", "some",
+            "create", "alter", "drop", "table", "index", "view",
+            "primary", "key", "foreign", "references", "constraint",
+            "check", "default", "auto_increment", "unique",
+            "grant", "revoke", "commit", "rollback", "transaction",
+            "begin", "savepoint", "release",
+            "user", "role", "password", "grant", "revoke",
+            "database", "schema", "tablespace",
+            "varchar", "char", "text", "integer", "int", "bigint",
+            "smallint", "decimal", "numeric", "float", "double",
+            "date", "time", "timestamp", "interval",
+            "boolean", "bit", "bytea", "json", "jsonb",
+            "array", "enum", "set", "blob", "clob",
+            "current_date", "current_time", "current_timestamp",
+            "now", "extract", "date_part", "date_trunc",
+            "coalesce", "nullif", "greatest", "least",
+            "count", "sum", "avg", "min", "max",
+            "abs", "ceil", "floor", "round", "trunc",
+            "length", "upper", "lower", "trim", "ltrim", "rtrim",
+            "substring", "replace", "position", "strpos",
+            "concat", "concat_ws", "repeat", "reverse", "left", "right",
+            "initcap", "md5", "sha256", "sha512",
+            "to_char", "to_date", "to_number", "to_timestamp",
+            "age", "justify_days", "justify_hours", "justify_interval",
+            "make_date", "make_time", "make_timestamp",
+            "clock_timestamp", "statement_timestamp", "timeofday",
+            "transaction_timestamp", "localtime", "localtimestamp",
+            "isfinite", "isunknown",
+            "overlay", "bit_length", "octet_length",
+            "convert", "transcode",
+            "normalize", "is_normalized",
+            "similar", "regexp_match", "regexp_matches",
+            "regexp_replace", "regexp_split_to_array", "regexp_split_to_table",
+            "string_agg", "array_agg", "json_agg", "jsonb_agg",
+            "json_object_agg", "jsonb_object_agg",
+            "xmlagg", "xml_is_well_formed", "xml_is_well_formed_content",
+            "xpath", "xpath_exists", "xmltable", "xmlcolumn",
+            "xmlcomment", "xmlconcat", "xmlelement", "xmlexists",
+            "xmlforest", "xmlparse", "xmlpi", "xmlroot",
+            "xmlserialize", "xmlvalidate",
+            "cube", "rollup", "grouping",
+            "lateral", "with", "recursive",
+            "fetch", "first", "next", "row", "rows",
+            "only", "for", "no", "key", "share", "update",
+            "skip", "locked",
+            "returning", "conflict", "nothing", "do",
+            "window", "over", "partition", "range", "current",
+            "preceding", "following", "unbounded", "exclude",
+            "ties", "dense", "rank", "percent", "cont",
+            "grouping", "sets", "cube", "rollup",
+            "filter", "within", "ties", "both", "leading", "trailing"
+        ));
+
+        if (reservedKeywords.contains(columnName.toLowerCase())) {
+            return "\"" + columnName + "\"";
+        }
+        return columnName;
     }
 
     /**
@@ -104,7 +180,8 @@ public class KingbaseWriterService {
 
             List<String> sanitizedColumns = new ArrayList<>();
             for (String col : columns) {
-                sanitizedColumns.add(col.replaceAll("[^a-zA-Z0-9_]", "_"));
+                String sanitized = col.replaceAll("[^a-zA-Z0-9_]", "_");
+                sanitizedColumns.add(escapeReservedKeyword(sanitized));
             }
             sql.append(String.join(", ", sanitizedColumns));
             sql.append(") VALUES ");
@@ -448,7 +525,8 @@ public class KingbaseWriterService {
 
                     List<String> sanitizedColumns = new ArrayList<>();
                     for (String col : columns) {
-                        sanitizedColumns.add(col.replaceAll("[^a-zA-Z0-9_]", "_"));
+                        String sanitized = col.replaceAll("[^a-zA-Z0-9_]", "_");
+                        sanitizedColumns.add(escapeReservedKeyword(sanitized));
                     }
                     sql.append(String.join(", ", sanitizedColumns));
                     sql.append(") VALUES ");

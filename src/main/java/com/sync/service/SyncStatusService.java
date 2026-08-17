@@ -129,4 +129,18 @@ public class SyncStatusService {
     public boolean isFirstSync(String tableName) {
         return getLastSyncTime(tableName) == null;
     }
+
+    /**
+     * 清除指定表的同步状态
+     * 当drop-table-before-sync为true时，需要重置同步状态
+     */
+    public void clearSyncStatus(String tableName) {
+        try {
+            String sql = "DELETE FROM " + STATUS_TABLE + " WHERE table_name = ?";
+            int affected = jdbcTemplate.update(sql, tableName);
+            logger.info("Cleared sync status for {}: {} rows deleted", tableName, affected);
+        } catch (Exception e) {
+            logger.error("Failed to clear sync status for {}: {}", tableName, e.getMessage(), e);
+        }
+    }
 }

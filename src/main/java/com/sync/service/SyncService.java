@@ -89,6 +89,11 @@ public class SyncService {
 
             if (syncConfig.isDropTableBeforeSync() && kingbaseWriterService.tableExists(kingbaseTable)) {
                 kingbaseWriterService.dropTable(kingbaseTable);
+                // 表被删除后，重置同步状态，确保下次同步为首次全量同步
+                lastSyncTimes.remove(collectionName);
+                maxEditTimes.remove(collectionName);
+                syncStatusService.clearSyncStatus(collectionName);
+                logger.info("Table {} dropped, sync status reset for full sync", kingbaseTable);
             }
 
             // 3. 创建表（如果不存在）
