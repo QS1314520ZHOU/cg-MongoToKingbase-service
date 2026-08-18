@@ -86,39 +86,26 @@ public class SyncService {
 
             // 2. 处理Kingbase表
             String kingbaseTable = collectionName.toLowerCase().replaceAll("[^a-zA-Z0-9_]", "_");
-
-            if (syncConfig.isDropTableBeforeSync() && kingbaseWriterService.tableExists(kingbaseTable)) {
-                kingbaseWriterService.dropTable(kingbaseTable);
-                // 表被删除后，重置同步状态，确保下次同步为首次全量同步
-                lastSyncTimes.remove(collectionName);
-                maxEditTimes.remove(collectionName);
-                syncStatusService.clearSyncStatus(collectionName);
-                logger.info("Table {} dropped, sync status reset for full sync", kingbaseTable);
-            }
+            boolean tableExists = kingbaseWriterService.tableExists(kingbaseTable);
 
             // 3. 创建表（如果不存在）
-            if (!kingbaseWriterService.tableExists(kingbaseTable)) {
-                if (syncConfig.isCreateTableIfNotExists()) {
-                    Map<String, String> columnTypes = new LinkedHashMap<>();
-                    columnTypes.put("mongo_id", "String");
-                    for (String field : mongoFields) {
-                        String type = ((Map<String, String>) schema.get("fields")).getOrDefault(field, "String");
-                        columnTypes.put(field, type);
-                    }
-                    // 添加同步时间字段和哈希字段
-                    columnTypes.put(syncConfig.getSyncFieldName(), "Date");
-                    columnTypes.put(dataHashService.getHashFieldName(), "String");
-                    kingbaseWriterService.createTable(kingbaseTable, columnTypes);
-                } else {
-                    logger.warn("Table {} does not exist in Kingbase and createTableIfNotExists is false", kingbaseTable);
-                    result.put("status", "SKIPPED");
-                    result.put("reason", "Table does not exist");
-                    return result;
+            if (!tableExists) {
+                Map<String, String> columnTypes = new LinkedHashMap<>();
+                columnTypes.put("mongo_id", "String");
+                for (String field : mongoFields) {
+                    String type = ((Map<String, String>) schema.get("fields")).getOrDefault(field, "String");
+                    columnTypes.put(field, type);
                 }
+                // 添加同步时间字段和哈希字段
+                columnTypes.put(syncConfig.getSyncFieldName(), "Date");
+                columnTypes.put(dataHashService.getHashFieldName(), "String");
+                kingbaseWriterService.createTable(kingbaseTable, columnTypes);
+                logger.info("Table {} created (new table)", kingbaseTable);
             } else {
                 // 表已存在，检查是否需要添加同步时间字段和哈希字段
                 ensureSyncFieldExists(kingbaseTable, syncConfig.getSyncFieldName());
                 ensureHashFieldExists(kingbaseTable);
+                logger.info("Table {} already exists, will perform incremental sync", kingbaseTable);
             }
 
             // 4. 读取并写入数据
@@ -137,14 +124,16 @@ public class SyncService {
 
             // 获取上次同步时间
             Date lastSyncTime = lastSyncTimes.get(collectionName);
-            boolean isFirstSync = (lastSyncTime == null);
 
-            logger.info("Sync mode: {}, lastSyncTime: {}, isFirstSync: {}",
-                syncConfig.getSyncMode(), lastSyncTime, isFirstSync);
+            // 判断同步模式：新表全量同步，已存在的表根据配置执行增量同步
+            boolean useFullSync = !tableExists || lastSyncTime == null;
+
+            logger.info("Table exists: {}, lastSyncTime: {}, useFullSync: {}",
+                tableExists, lastSyncTime, useFullSync);
 
             // 5. 判断同步模式
-            if ("incremental".equals(syncConfig.getSyncMode()) && !isFirstSync) {
-                // 增量同步模式
+            if (!useFullSync) {
+                // 增量同步模式（表已存在且有同步记录）
                 logger.info("Using incremental sync mode");
 
                 if (syncConfig.getEditTimeField() != null && !syncConfig.getEditTimeField().isEmpty()) {
@@ -307,7 +296,7 @@ public class SyncService {
             result.put("durationMs", duration);
             result.put("kingbaseTable", kingbaseTable);
             result.put("lastSyncTime", currentSyncTime);
-            result.put("isFirstSync", isFirstSync);
+            result.put("isNewTable", !tableExists);
             if (maxEditTime != null) {
                 result.put("maxEditTime", maxEditTime);
             }

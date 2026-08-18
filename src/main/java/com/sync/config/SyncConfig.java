@@ -18,9 +18,8 @@ public class SyncConfig {
     private List<String> tables = new ArrayList<>();
     private int batchSize = 1000;
     private boolean enable = true;
-    private boolean dropTableBeforeSync = false;
     private boolean createTableIfNotExists = true;
-    private String syncMode = "full";
+    private String syncMode = "incremental";
     private String timestampField = "";
     private String editTimeField = "editTime";
     private String syncFieldName = "MongoToKingDate";
@@ -41,10 +40,6 @@ public class SyncConfig {
 
     public boolean isEnable() {
         return enable;
-    }
-
-    public boolean isDropTableBeforeSync() {
-        return dropTableBeforeSync;
     }
 
     public boolean isCreateTableIfNotExists() {
@@ -82,10 +77,6 @@ public class SyncConfig {
 
     public void setEnable(boolean enable) {
         this.enable = enable;
-    }
-
-    public void setDropTableBeforeSync(boolean dropTableBeforeSync) {
-        this.dropTableBeforeSync = dropTableBeforeSync;
     }
 
     public void setCreateTableIfNotExists(boolean createTableIfNotExists) {
