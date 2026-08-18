@@ -60,6 +60,40 @@ public class KingbaseWriterService {
     }
 
     /**
+     * 确保表中存在所有需要的列
+     * 如果列不存在，则添加列
+     */
+    public void ensureColumnsExist(String tableName, List<String> columns) {
+        try {
+            // 获取现有列
+            Map<String, String> existingColumns = getTableColumns(tableName);
+
+            for (String col : columns) {
+                String sanitizedCol = col.replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase();
+                if (!existingColumns.containsKey(sanitizedCol)) {
+                    // 列不存在，添加列
+                    String colType = "TEXT"; // 默认使用TEXT类型
+                    if (col.toLowerCase().contains("time") || col.toLowerCase().contains("date")) {
+                        colType = "TIMESTAMP";
+                    } else if (col.toLowerCase().contains("valid") || col.toLowerCase().contains("flag")) {
+                        colType = "BOOLEAN";
+                    } else if (col.toLowerCase().contains("count") || col.toLowerCase().contains("times")) {
+                        colType = "INTEGER";
+                    } else if (col.toLowerCase().contains("val") || col.toLowerCase().contains("num")) {
+                        colType = "NUMERIC";
+                    }
+
+                    String sql = "ALTER TABLE " + tableName + " ADD COLUMN " + escapeReservedKeyword(sanitizedCol) + " " + colType;
+                    logger.info("Adding missing column {} to table {}", sanitizedCol, tableName);
+                    jdbcTemplate.execute(sql);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to ensure columns exist: {}", e.getMessage());
+        }
+    }
+
+    /**
      * 创建表
      */
     public void createTable(String tableName, Map<String, String> columns) {
@@ -286,6 +320,9 @@ public class KingbaseWriterService {
 
         int totalAffected = 0;
         try {
+            // 确保所有列都存在
+            ensureColumnsExist(tableName, columns);
+
             for (Document doc : documents) {
                 String mongoId = doc.getObjectId("_id").toString();
 
@@ -532,6 +569,9 @@ public class KingbaseWriterService {
 
         int insertedCount = 0;
         try {
+            // 确保所有列都存在
+            ensureColumnsExist(tableName, columns);
+
             for (Document doc : documents) {
                 try {
                     StringBuilder sql = new StringBuilder();
