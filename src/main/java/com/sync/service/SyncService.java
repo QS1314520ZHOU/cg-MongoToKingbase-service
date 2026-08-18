@@ -242,16 +242,18 @@ public class SyncService {
 
         if (documents.isEmpty()) {
             ctx.completed = true;
-            // 增量同步完成后，更新同步状态
-            if (!ctx.useFullSync) {
-                Date maxEditTime = mongoReaderService.getMaxEditTime(ctx.tableName, syncConfig.getEditTimeField());
+            // 同步完成后，更新同步状态
+            Date maxEditTime = null;
+            if (syncConfig.getEditTimeField() != null && !syncConfig.getEditTimeField().isEmpty()) {
+                maxEditTime = mongoReaderService.getMaxEditTime(ctx.tableName, syncConfig.getEditTimeField());
                 if (maxEditTime != null) {
                     maxEditTimes.put(ctx.tableName, maxEditTime);
                 }
-                Date currentSyncTime = new Date();
-                lastSyncTimes.put(ctx.tableName, currentSyncTime);
-                syncStatusService.saveSyncStatus(ctx.tableName, currentSyncTime, maxEditTime, ctx.totalInserted.get());
             }
+            Date currentSyncTime = new Date();
+            lastSyncTimes.put(ctx.tableName, currentSyncTime);
+            syncStatusService.saveSyncStatus(ctx.tableName, currentSyncTime, maxEditTime, ctx.totalInserted.get());
+            logger.info("Saved sync status for {}: totalInserted={}", ctx.tableName, ctx.totalInserted.get());
             return 0;
         }
 
@@ -279,6 +281,19 @@ public class SyncService {
 
         logger.info("Table {} batch: synced {} documents, total: {}",
             ctx.tableName, synced, ctx.totalInserted.get());
+
+        // 每批同步完成后都保存同步状态
+        Date maxEditTime = null;
+        if (syncConfig.getEditTimeField() != null && !syncConfig.getEditTimeField().isEmpty()) {
+            maxEditTime = mongoReaderService.getMaxEditTime(ctx.tableName, syncConfig.getEditTimeField());
+            if (maxEditTime != null) {
+                maxEditTimes.put(ctx.tableName, maxEditTime);
+            }
+        }
+        Date currentSyncTime = new Date();
+        lastSyncTimes.put(ctx.tableName, currentSyncTime);
+        syncStatusService.saveSyncStatus(ctx.tableName, currentSyncTime, maxEditTime, ctx.totalInserted.get());
+        logger.debug("Saved sync status for {}: totalInserted={}", ctx.tableName, ctx.totalInserted.get());
 
         return synced;
     }
