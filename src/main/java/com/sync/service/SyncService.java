@@ -87,6 +87,7 @@ public class SyncService {
             // 2. 处理Kingbase表
             String kingbaseTable = collectionName.toLowerCase().replaceAll("[^a-zA-Z0-9_]", "_");
             boolean tableExists = kingbaseWriterService.tableExists(kingbaseTable);
+            boolean tableIsEmpty = tableExists ? kingbaseWriterService.isTableEmpty(kingbaseTable) : true;
 
             // 3. 创建表（如果不存在）
             if (!tableExists) {
@@ -105,7 +106,7 @@ public class SyncService {
                 // 表已存在，检查是否需要添加同步时间字段和哈希字段
                 ensureSyncFieldExists(kingbaseTable, syncConfig.getSyncFieldName());
                 ensureHashFieldExists(kingbaseTable);
-                logger.info("Table {} already exists, will perform incremental sync", kingbaseTable);
+                logger.info("Table {} already exists, isEmpty: {}", kingbaseTable, tableIsEmpty);
             }
 
             // 4. 读取并写入数据
@@ -125,11 +126,11 @@ public class SyncService {
             // 获取上次同步时间
             Date lastSyncTime = lastSyncTimes.get(collectionName);
 
-            // 判断同步模式：新表全量同步，已存在的表根据配置执行增量同步
-            boolean useFullSync = !tableExists || lastSyncTime == null;
+            // 判断同步模式：新表或空表全量同步，已存在且有数据的表根据配置执行增量同步
+            boolean useFullSync = !tableExists || tableIsEmpty || lastSyncTime == null;
 
-            logger.info("Table exists: {}, lastSyncTime: {}, useFullSync: {}",
-                tableExists, lastSyncTime, useFullSync);
+            logger.info("Table exists: {}, isEmpty: {}, lastSyncTime: {}, useFullSync: {}",
+                tableExists, tableIsEmpty, lastSyncTime, useFullSync);
 
             // 5. 判断同步模式
             if (!useFullSync) {

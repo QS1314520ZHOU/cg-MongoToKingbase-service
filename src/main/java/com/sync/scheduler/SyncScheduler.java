@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 public class SyncScheduler {
@@ -21,6 +22,9 @@ public class SyncScheduler {
     @Autowired
     private SyncConfig syncConfig;
 
+    // 同步锁，确保同一时间只有一个同步任务在执行
+    private final AtomicBoolean syncLock = new AtomicBoolean(false);
+
     /**
      * 定时同步任务
      * 使用配置文件中的cron表达式
@@ -29,6 +33,12 @@ public class SyncScheduler {
     public void scheduledSync() {
         if (!syncConfig.isEnable()) {
             logger.info("同步功能已禁用，跳过定时同步");
+            return;
+        }
+
+        // 检查是否有同步任务正在执行
+        if (!syncLock.compareAndSet(false, true)) {
+            logger.info("上一次同步任务仍在执行中，跳过本次定时同步");
             return;
         }
 
@@ -60,6 +70,9 @@ public class SyncScheduler {
             logger.info("==================================");
         } catch (Exception e) {
             logger.error("定时同步失败: {}", e.getMessage(), e);
+        } finally {
+            // 释放同步锁
+            syncLock.set(false);
         }
     }
 
@@ -67,6 +80,12 @@ public class SyncScheduler {
      * 手动触发同步
      */
     public Map<String, Object> triggerSync() {
+        // 检查是否有同步任务正在执行
+        if (!syncLock.compareAndSet(false, true)) {
+            logger.info("上一次同步任务仍在执行中，请稍后再试");
+            throw new RuntimeException("同步任务正在执行中，请稍后再试");
+        }
+
         logger.info("手动触发同步");
         long startTime = System.currentTimeMillis();
 
@@ -78,6 +97,9 @@ public class SyncScheduler {
         } catch (Exception e) {
             logger.error("手动同步失败: {}", e.getMessage(), e);
             throw e;
+        } finally {
+            // 释放同步锁
+            syncLock.set(false);
         }
     }
 
@@ -85,7 +107,18 @@ public class SyncScheduler {
      * 手动触发单个表同步
      */
     public Map<String, Object> triggerSyncTable(String tableName) {
+        // 检查是否有同步任务正在执行
+        if (!syncLock.compareAndSet(false, true)) {
+            logger.info("上一次同步任务仍在执行中，请稍后再试");
+            throw new RuntimeException("同步任务正在执行中，请稍后再试");
+        }
+
         logger.info("手动触发表同步: {}", tableName);
-        return syncService.syncTable(tableName);
+        try {
+            return syncService.syncTable(tableName);
+        } finally {
+            // 释放同步锁
+            syncLock.set(false);
+        }
     }
 }

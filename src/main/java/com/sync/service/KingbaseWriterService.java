@@ -46,6 +46,20 @@ public class KingbaseWriterService {
     }
 
     /**
+     * 检查表是否有数据
+     */
+    public boolean isTableEmpty(String tableName) {
+        try {
+            String sql = "SELECT COUNT(*) FROM " + tableName;
+            Long count = jdbcTemplate.queryForObject(sql, Long.class);
+            return count == null || count == 0;
+        } catch (Exception e) {
+            logger.error("Failed to check if table is empty: {}", e.getMessage(), e);
+            return true; // 出错时视为空表
+        }
+    }
+
+    /**
      * 创建表
      */
     public void createTable(String tableName, Map<String, String> columns) {
