@@ -350,9 +350,11 @@ public class KingbaseWriterService {
                         params.add(extractValue(doc, col.replace("_", ".")));
                     }
 
-                    // 添加同步时间字段
-                    setClauses.add(syncFieldName + " = ?");
-                    params.add(new java.sql.Timestamp(System.currentTimeMillis()));
+                    // 添加同步时间字段（如果还没包含）
+                    if (!sanitizedColumns.contains(syncFieldName)) {
+                        setClauses.add(syncFieldName + " = ?");
+                        params.add(new java.sql.Timestamp(System.currentTimeMillis()));
+                    }
 
                     updateSql.append(String.join(", ", setClauses));
                     updateSql.append(" WHERE mongo_id = ?");
