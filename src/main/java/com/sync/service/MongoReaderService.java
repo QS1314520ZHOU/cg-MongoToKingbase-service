@@ -67,11 +67,17 @@ public class MongoReaderService {
                 extractFieldTypes(doc, "", fieldTypes, allFields);
             }
 
-            schema.put("fields", fieldTypes);
-            schema.put("fieldCount", allFields.size());
+            // 将字段名统一转换为小写，避免大小写重复
+            Map<String, String> normalizedFieldTypes = new LinkedHashMap<>();
+            for (Map.Entry<String, String> entry : fieldTypes.entrySet()) {
+                normalizedFieldTypes.put(entry.getKey().toLowerCase(), entry.getValue());
+            }
+
+            schema.put("fields", normalizedFieldTypes);
+            schema.put("fieldCount", normalizedFieldTypes.size());
             schema.put("sampleSize", Math.min(100, getDocumentCount(collectionName)));
 
-            logger.info("Schema for {}: {} fields", collectionName, allFields.size());
+            logger.info("Schema for {}: {} fields", collectionName, normalizedFieldTypes.size());
         } catch (Exception e) {
             logger.error("Failed to get schema for {}: {}", collectionName, e.getMessage(), e);
         }
@@ -236,7 +242,7 @@ public class MongoReaderService {
     }
 
     /**
-     * 获取集合的所有字段名
+     * 获取集合的所有字段名（统一转换为小写，避免大小写重复）
      */
     public Set<String> getCollectionFields(String collectionName) {
         Set<String> fields = new LinkedHashSet<>();
@@ -248,6 +254,13 @@ public class MongoReaderService {
                 Document doc = cursor.next();
                 extractAllFields(doc, "", fields);
             }
+
+            // 将字段名统一转换为小写，避免大小写重复
+            Set<String> normalizedFields = new LinkedHashSet<>();
+            for (String field : fields) {
+                normalizedFields.add(field.toLowerCase());
+            }
+            return normalizedFields;
         } catch (Exception e) {
             logger.error("Failed to get fields for {}: {}", collectionName, e.getMessage(), e);
         }
