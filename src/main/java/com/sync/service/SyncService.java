@@ -80,12 +80,13 @@ public class SyncService {
                     }
 
                     try {
-                        int synced = syncTableBatch(ctx, batchSize);
-                        totalSyncedThisRound += synced;
+                        int readCount = syncTableBatch(ctx, batchSize);
+                        totalSyncedThisRound += readCount;
 
-                        if (synced < batchSize) {
+                        // 如果读取的文档数小于批次大小，说明MongoDB中没有更多数据了
+                        if (readCount < batchSize) {
                             ctx.completed = true;
-                            logger.info("Table {} completed sync", ctx.tableName);
+                            logger.info("Table {} completed sync (read {} < batchSize {})", ctx.tableName, readCount, batchSize);
                         } else {
                             allCompleted = false;
                         }
@@ -267,20 +268,21 @@ public class SyncService {
         }
 
         // 写入数据
-        int synced;
+        int readCount = documents.size();  // 读取的文档数
+        int insertedCount;  // 实际插入/更新的行数
         if (ctx.useFullSync) {
-            synced = kingbaseWriterService.batchInsertIgnoreDuplicate(
+            insertedCount = kingbaseWriterService.batchInsertIgnoreDuplicate(
                 ctx.kingbaseTable, processedDocs, ctx.columns);
         } else {
-            synced = kingbaseWriterService.batchUpsert(
+            insertedCount = kingbaseWriterService.batchUpsert(
                 ctx.kingbaseTable, processedDocs, ctx.columns, syncConfig.getSyncFieldName());
         }
 
-        ctx.totalInserted.addAndGet(synced);
+        ctx.totalInserted.addAndGet(insertedCount);
         ctx.skip += batchSize;
 
-        logger.info("Table {} batch: synced {} documents, total: {}",
-            ctx.tableName, synced, ctx.totalInserted.get());
+        logger.info("Table {} batch: read {} documents, inserted {} (new), total: {}",
+            ctx.tableName, readCount, insertedCount, ctx.totalInserted.get());
 
         // 每批同步完成后都保存同步状态
         Date maxEditTime = null;
@@ -295,7 +297,8 @@ public class SyncService {
         syncStatusService.saveSyncStatus(ctx.tableName, currentSyncTime, maxEditTime, ctx.totalInserted.get());
         logger.debug("Saved sync status for {}: totalInserted={}", ctx.tableName, ctx.totalInserted.get());
 
-        return synced;
+        // 返回读取的文档数（而非插入数），用于判断是否还有更多数据
+        return readCount;
     }
 
     /**
