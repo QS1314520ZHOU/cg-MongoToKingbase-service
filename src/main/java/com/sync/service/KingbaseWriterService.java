@@ -429,7 +429,18 @@ public class KingbaseWriterService {
 
         for (String part : parts) {
             if (current instanceof Document) {
-                current = ((Document) current).get(part);
+                Document docObj = (Document) current;
+                // 先尝试直接获取
+                current = docObj.get(part);
+                // 如果找不到，尝试大小写不敏感匹配
+                if (current == null) {
+                    for (String key : docObj.keySet()) {
+                        if (key.equalsIgnoreCase(part)) {
+                            current = docObj.get(key);
+                            break;
+                        }
+                    }
+                }
             } else {
                 return null;
             }
