@@ -273,11 +273,16 @@ public class SyncService {
             }
         }
 
-        // 合并预定义字段和实际字段，确保不遗漏任何字段
+        // 合并预定义字段和实际字段，确保不遗漏任何字段（忽略大小写去重）
         List<String> allColumns = new ArrayList<>(ctx.columns);
+        Set<String> allColumnsLower = new LinkedHashSet<>();
+        for (String col : allColumns) {
+            allColumnsLower.add(col.toLowerCase());
+        }
         for (String field : actualFields) {
-            if (!allColumns.contains(field)) {
+            if (!allColumnsLower.contains(field.toLowerCase())) {
                 allColumns.add(field);
+                allColumnsLower.add(field.toLowerCase());
                 logger.debug("Added dynamic column from document: {}", field);
             }
         }
@@ -357,11 +362,16 @@ public class SyncService {
                     }
                 }
 
-                // 合并预定义字段和实际字段
+                // 合并预定义字段和实际字段（忽略大小写去重）
                 List<String> allColumns = new ArrayList<>(ctx.columns);
+                Set<String> allColumnsLower = new LinkedHashSet<>();
+                for (String col : allColumns) {
+                    allColumnsLower.add(col.toLowerCase());
+                }
                 for (String field : actualFields) {
-                    if (!allColumns.contains(field)) {
+                    if (!allColumnsLower.contains(field.toLowerCase())) {
                         allColumns.add(field);
+                        allColumnsLower.add(field.toLowerCase());
                         logger.debug("Added dynamic column from document: {}", field);
                     }
                 }
