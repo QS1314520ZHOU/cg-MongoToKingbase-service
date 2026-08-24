@@ -1,0 +1,63 @@
+db.patient.update({ _id: ObjectId("6a8b9a265809da479c3615c5") }, {
+    $set: {
+        "hisPid": "0002573757",
+        "mrn": "0126080986",
+        "createdTime": ISODate("2026-08-24T09:11:02.605+08:00"),
+        "admissionTime": ISODate("2026-08-22T11:57:02.000+08:00"),
+        "name": "敖其山",
+        "birthday": ISODate("1952-05-05T00:00:00.000+08:00"),
+        "gender": "Male",
+        "allergicRecordList": [],
+        "hospitalTime": "1",
+        "hisBed": "2",
+        "bedTime": ISODate("2026-08-24T10:50:00.044+08:00"),
+        "patBedHistories": [
+            {
+                "hisBed": "2",
+                "time": ISODate("2026-08-24T09:16:00.039+08:00")
+            }
+        ],
+        "status": "admitted",
+        "icuAdmissionTime": ISODate("2026-08-24T08:02:00.000+08:00"),
+        "hisAdmissionTime": ISODate("2026-08-24T08:02:00.000+08:00"),
+        "hisAdmissionTimeList": [
+            ISODate("2026-08-24T08:02:00.000+08:00")
+        ],
+        "admissionSource": "心血管内科一病区",
+        "admissionPlan": "计划转入",
+        "clinicalDiagnosisTime": ISODate("2026-08-24T08:02:00.000+08:00"),
+        "clinicalDiagnosis": "冠状动脉粥样硬化性心脏病",
+        "clinicalDiagnosisCodeList": [
+            "I25.103"
+        ],
+        "insuranceType": "全费",
+        "dept": "重症医学科",
+        "deptCode": "125011",
+        "chiefComplaint": "-",
+        "bedDoctorId": "034191",
+        "bedPhysician": "欧袁",
+        "admissionType": "转入",
+        "dischargedDiagnosisIcd": [],
+        "merge": false,
+        "allowReturn": false,
+        "meetAdmitRequirement": true,
+        "meetDischargeRequirement": true,
+        "deptCode2": "125011",
+        "expenseRecordList": [],
+        "nation": "汉族",
+        "maritalStatus": "已婚",
+        "tel": "13527581772",
+        "idcard": "510221195205055116",
+        "contactsName": "邓国祥",
+        "contactsRelation": "其他亲属",
+        "contactsPhone": "13527581772",
+        "address": "铁运村大渡口",
+        "height": "0.00",
+        "weight": "0.00",
+        "occupation": "无业人员",
+        "documentType": "身份证",
+        "bloodType": "",
+        "bloodRH": "RH不详",
+        "_class": "com.digixmed.icu.viform.Patient"
+    }
+})

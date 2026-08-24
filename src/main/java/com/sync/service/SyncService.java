@@ -258,13 +258,28 @@ public class SyncService {
             return 0;
         }
 
-        // 处理文档
+        // 处理文档，同时收集所有实际字段
         List<Document> processedDocs = new ArrayList<>();
+        Set<String> actualFields = new LinkedHashSet<>();
         for (Document doc : documents) {
             Document processed = dataHashService.addHashToDocument(doc);
             processed.put("mongo_id", doc.getObjectId("_id").toString());
             processed.put(syncConfig.getSyncFieldName(), new Date());
             processedDocs.add(processed);
+
+            // 收集文档中的所有字段名（转小写）
+            for (String key : processed.keySet()) {
+                actualFields.add(key.toLowerCase());
+            }
+        }
+
+        // 合并预定义字段和实际字段，确保不遗漏任何字段
+        List<String> allColumns = new ArrayList<>(ctx.columns);
+        for (String field : actualFields) {
+            if (!allColumns.contains(field)) {
+                allColumns.add(field);
+                logger.debug("Added dynamic column from document: {}", field);
+            }
         }
 
         // 写入数据
@@ -272,10 +287,10 @@ public class SyncService {
         int insertedCount;  // 实际插入/更新的行数
         if (ctx.useFullSync) {
             insertedCount = kingbaseWriterService.batchInsertIgnoreDuplicate(
-                ctx.kingbaseTable, processedDocs, ctx.columns);
+                ctx.kingbaseTable, processedDocs, allColumns);
         } else {
             insertedCount = kingbaseWriterService.batchUpsert(
-                ctx.kingbaseTable, processedDocs, ctx.columns, syncConfig.getSyncFieldName());
+                ctx.kingbaseTable, processedDocs, allColumns, syncConfig.getSyncFieldName());
         }
 
         ctx.totalInserted.addAndGet(insertedCount);
@@ -327,16 +342,32 @@ public class SyncService {
                     break;
                 }
 
+                // 处理文档，同时收集所有实际字段
                 List<Document> processedDocs = new ArrayList<>();
+                Set<String> actualFields = new LinkedHashSet<>();
                 for (Document doc : documents) {
                     Document processed = dataHashService.addHashToDocument(doc);
                     processed.put("mongo_id", doc.getObjectId("_id").toString());
                     processed.put(syncConfig.getSyncFieldName(), new Date());
                     processedDocs.add(processed);
+
+                    // 收集文档中的所有字段名（转小写）
+                    for (String key : processed.keySet()) {
+                        actualFields.add(key.toLowerCase());
+                    }
+                }
+
+                // 合并预定义字段和实际字段
+                List<String> allColumns = new ArrayList<>(ctx.columns);
+                for (String field : actualFields) {
+                    if (!allColumns.contains(field)) {
+                        allColumns.add(field);
+                        logger.debug("Added dynamic column from document: {}", field);
+                    }
                 }
 
                 int affected = kingbaseWriterService.batchUpsert(
-                    ctx.kingbaseTable, processedDocs, ctx.columns, syncConfig.getSyncFieldName());
+                    ctx.kingbaseTable, processedDocs, allColumns, syncConfig.getSyncFieldName());
 
                 ctx.totalInserted.addAndGet(affected);
                 ctx.skip += batchSize;
