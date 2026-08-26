@@ -137,6 +137,8 @@ public class MongoReaderService {
             return "ObjectId";
         } else if (value instanceof org.bson.types.Decimal128) {
             return "Decimal128";
+        } else if (value instanceof org.bson.types.Binary) {
+            return "bytea";  // GridFS二进制数据映射到bytea类型
         } else {
             return value.getClass().getSimpleName();
         }

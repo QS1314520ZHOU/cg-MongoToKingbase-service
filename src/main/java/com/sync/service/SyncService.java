@@ -280,7 +280,17 @@ public class SyncService {
         Set<String> actualFields = new LinkedHashSet<>();
         for (Document doc : documents) {
             Document processed = dataHashService.addHashToDocument(doc);
-            processed.put("mongo_id", doc.getObjectId("_id").toString());
+            // 处理不同类型的_id字段（ObjectId或String）
+            Object idValue = doc.get("_id");
+            String mongoId;
+            if (idValue instanceof org.bson.types.ObjectId) {
+                mongoId = ((org.bson.types.ObjectId) idValue).toString();
+            } else if (idValue != null) {
+                mongoId = idValue.toString();
+            } else {
+                mongoId = java.util.UUID.randomUUID().toString();
+            }
+            processed.put("mongo_id", mongoId);
             processed.put(syncConfig.getSyncFieldName(), new Date());
             processedDocs.add(processed);
 
@@ -369,7 +379,17 @@ public class SyncService {
                 Set<String> actualFields = new LinkedHashSet<>();
                 for (Document doc : documents) {
                     Document processed = dataHashService.addHashToDocument(doc);
-                    processed.put("mongo_id", doc.getObjectId("_id").toString());
+                    // 处理不同类型的_id字段（ObjectId或String）
+                    Object idValue = doc.get("_id");
+                    String mongoId;
+                    if (idValue instanceof org.bson.types.ObjectId) {
+                        mongoId = ((org.bson.types.ObjectId) idValue).toString();
+                    } else if (idValue != null) {
+                        mongoId = idValue.toString();
+                    } else {
+                        mongoId = java.util.UUID.randomUUID().toString();
+                    }
+                    processed.put("mongo_id", mongoId);
                     processed.put(syncConfig.getSyncFieldName(), new Date());
                     processedDocs.add(processed);
 
@@ -526,7 +546,17 @@ public class SyncService {
                         List<Document> processedDocs = new ArrayList<>();
                         for (Document doc : documents) {
                             Document processed = dataHashService.addHashToDocument(doc);
-                            processed.put("mongo_id", doc.getObjectId("_id").toString());
+                            // 处理不同类型的_id字段（ObjectId或String）
+                            Object idValue = doc.get("_id");
+                            String mongoId;
+                            if (idValue instanceof org.bson.types.ObjectId) {
+                                mongoId = ((org.bson.types.ObjectId) idValue).toString();
+                            } else if (idValue != null) {
+                                mongoId = idValue.toString();
+                            } else {
+                                mongoId = java.util.UUID.randomUUID().toString();
+                            }
+                            processed.put("mongo_id", mongoId);
                             processed.put(syncConfig.getSyncFieldName(), new Date());
                             processedDocs.add(processed);
                         }
@@ -558,8 +588,17 @@ public class SyncService {
                         // 处理文档，添加哈希值
                         List<Document> processedDocs = new ArrayList<>();
                         for (Document doc : documents) {
+                            // 处理不同类型的_id字段（ObjectId或String）
+                            Object idValue = doc.get("_id");
+                            String mongoId;
+                            if (idValue instanceof org.bson.types.ObjectId) {
+                                mongoId = ((org.bson.types.ObjectId) idValue).toString();
+                            } else if (idValue != null) {
+                                mongoId = idValue.toString();
+                            } else {
+                                mongoId = java.util.UUID.randomUUID().toString();
+                            }
                             // 获取Kingbase中对应的哈希值
-                            String mongoId = doc.getObjectId("_id").toString();
                             String existingHash = kingbaseWriterService.getHashByMongoId(kingbaseTable, mongoId);
 
                             // 计算MongoDB文档的哈希

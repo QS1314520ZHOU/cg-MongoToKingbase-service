@@ -295,7 +295,17 @@ public class KingbaseWriterService {
                 sql.append(String.join(", ", setClauses));
                 sql.append(" WHERE mongo_id = ?");
 
-                params.add(doc.getObjectId("_id").toString());
+                // 处理不同类型的_id字段（ObjectId或String）
+                Object idValue = doc.get("_id");
+                String mongoId;
+                if (idValue instanceof org.bson.types.ObjectId) {
+                    mongoId = ((org.bson.types.ObjectId) idValue).toString();
+                } else if (idValue != null) {
+                    mongoId = idValue.toString();
+                } else {
+                    mongoId = java.util.UUID.randomUUID().toString();
+                }
+                params.add(mongoId);
 
                 int updated = jdbcTemplate.update(sql.toString(), params.toArray());
                 totalUpdated += updated;
@@ -324,7 +334,16 @@ public class KingbaseWriterService {
             ensureColumnsExist(tableName, columns);
 
             for (Document doc : documents) {
-                String mongoId = doc.getObjectId("_id").toString();
+                // 处理不同类型的_id字段（ObjectId或String）
+                Object idValue = doc.get("_id");
+                String mongoId;
+                if (idValue instanceof org.bson.types.ObjectId) {
+                    mongoId = ((org.bson.types.ObjectId) idValue).toString();
+                } else if (idValue != null) {
+                    mongoId = idValue.toString();
+                } else {
+                    mongoId = java.util.UUID.randomUUID().toString();
+                }
 
                 // 检查是否已存在
                 String checkSql = "SELECT COUNT(*) FROM " + tableName + " WHERE mongo_id = ?";
@@ -456,6 +475,9 @@ public class KingbaseWriterService {
             return current.toString();
         } else if (current instanceof org.bson.types.Decimal128) {
             return ((org.bson.types.Decimal128) current).bigDecimalValue();
+        } else if (current instanceof org.bson.types.Binary) {
+            // GridFS二进制数据转换为byte[]，映射到Kingbase的bytea类型
+            return ((org.bson.types.Binary) current).getData();
         } else if (current instanceof List) {
             return convertListToJson((List<?>) current);
         } else if (current instanceof Document) {
@@ -612,7 +634,10 @@ public class KingbaseWriterService {
                     int affected = jdbcTemplate.update(sql.toString(), params.toArray());
                     insertedCount += affected;
                 } catch (Exception e) {
-                    logger.warn("Failed to insert document {}: {}", doc.getObjectId("_id"), e.getMessage());
+                    // 处理不同类型的_id字段用于日志输出
+                    Object idValue = doc.get("_id");
+                    String mongoIdForLog = idValue != null ? idValue.toString() : "unknown";
+                    logger.warn("Failed to insert document {}: {}", mongoIdForLog, e.getMessage());
                 }
             }
 
