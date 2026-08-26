@@ -26,6 +26,12 @@ public class SyncConfig {
 
     private long stepInterval = 180000; // 默认3分钟
 
+    // 配置表同步cron表达式（默认7天一次）
+    private String configTableCronExpression = "0 0 3 1/7 * ?";
+
+    // 配置表名称匹配模式（正则表达式，不区分大小写，默认包含config）
+    private String configTablePattern = "(?i).*config.*";
+
     public String getCronExpression() {
         return cronExpression;
     }
@@ -105,5 +111,21 @@ public class SyncConfig {
 
     public void setStepInterval(long stepInterval) {
         this.stepInterval = stepInterval;
+    }
+
+    public String getConfigTableCronExpression() {
+        return configTableCronExpression;
+    }
+
+    public void setConfigTableCronExpression(String configTableCronExpression) {
+        this.configTableCronExpression = configTableCronExpression;
+    }
+
+    public String getConfigTablePattern() {
+        return configTablePattern;
+    }
+
+    public void setConfigTablePattern(String configTablePattern) {
+        this.configTablePattern = configTablePattern;
     }
 }

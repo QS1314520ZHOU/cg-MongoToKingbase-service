@@ -1,0 +1,193 @@
+db.tubeExe.update({ _id: ObjectId("6a85c7f50f2a6b6d692c08ed") }, {
+    $set: {
+        "pid": "6a85bdf9d3f5ba72ab12dd3e",
+        "name": "尿管",
+        "type": "尿管",
+        "noCalAgain48h": false,
+        "startTime": ISODate("2026-08-19T13:00:15.000+08:00"),
+        "startUser": "不祥",
+        "unKnownStartTime": false,
+        "tubeRecordList": [
+            {
+                "_id": NumberLong("1787152609824"),
+                "time": ISODate("2026-08-19T23:16:00.000+08:00"),
+                "recordUser": "6a1f9f01e467916d244bbdab",
+                "recordUserName": "陈秋月",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定、更换引流袋",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787187971142"),
+                "time": ISODate("2026-08-20T03:05:00.000+08:00"),
+                "recordUser": "6a1f9f01e467916d244bbdba",
+                "recordUserName": "李亚男",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "浑浊、清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787195036285"),
+                "time": ISODate("2026-08-20T11:03:00.000+08:00"),
+                "recordUser": "6a1f9f01e467916d244bbdbc",
+                "recordUserName": "李自艳",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787222296763"),
+                "time": ISODate("2026-08-20T18:38:00.000+08:00"),
+                "recordUser": "6a1f9f01e467916d244bbda7",
+                "recordUserName": "蔡壁懋",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787248776258"),
+                "time": ISODate("2026-08-21T01:59:00.000+08:00"),
+                "recordUser": "6a1f9f01e467916d244bbdc1",
+                "recordUserName": "邱荷岚",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787279805690"),
+                "time": ISODate("2026-08-21T10:36:00.000+08:00"),
+                "recordUser": "6a1f9f01e467916d244bbdb1",
+                "recordUserName": "胡琴",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787311049658"),
+                "time": ISODate("2026-08-21T19:17:00.000+08:00"),
+                "recordUser": "6a1f9f01e467916d244bbdbc",
+                "recordUserName": "李自艳",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787336731286"),
+                "time": ISODate("2026-08-22T01:00:00.000+08:00"),
+                "recordUser": "6a1f9f01e467916d244bbda7",
+                "recordUserName": "蔡壁懋",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787374095088"),
+                "time": ISODate("2026-08-22T12:47:00.000+08:00"),
+                "recordUser": "6a72f6163ca72f3e8db3c614",
+                "recordUserName": "陈渝",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787392296770"),
+                "time": ISODate("2026-08-22T17:51:00.000+08:00"),
+                "recordUser": "6a72f6163ca72f3e8db3c614",
+                "recordUserName": "陈渝",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787419436975"),
+                "time": ISODate("2026-08-23T01:23:00.000+08:00"),
+                "recordUser": "6a1f9f01e467916d244bbdbc",
+                "recordUserName": "李自艳",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787445462032"),
+                "time": ISODate("2026-08-23T08:37:00.000+08:00"),
+                "recordUser": "6a1f9f01e467916d244bbdc8",
+                "recordUserName": "谢娜",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787479623732"),
+                "time": ISODate("2026-08-23T17:32:00.000+08:00"),
+                "recordUser": "6a72f6163ca72f3e8db3c614",
+                "recordUserName": "陈渝",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787507361795"),
+                "time": ISODate("2026-08-24T01:49:00.000+08:00"),
+                "recordUser": "6a1f9f01e467916d244bbdb3",
+                "recordUserName": "蒋丹红",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            },
+            {
+                "_id": NumberLong("1787539553585"),
+                "time": ISODate("2026-08-24T10:45:00.000+08:00"),
+                "recordUser": "6a1f9f01e467916d244bbdae",
+                "recordUserName": "何成银",
+                "color": "淡黄色",
+                "tubeStatus": "在位通畅",
+                "drainageWay": "接引流袋",
+                "character": "清亮",
+                "catheterNurse": "二次固定",
+                "valid": true
+            }
+        ],
+        "_class": "com.digixmed.icu.smartcare.database.entitys.tubeExe.TubeExe"
+    }
+})

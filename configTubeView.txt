@@ -1,0 +1,85 @@
+db.configTubeView.update({ _id: ObjectId("6a323a1b9901235b28fcb678") }, {
+    $set: {
+        "tubeType": "尿管",
+        "valid": true,
+        "canEdit": true,
+        "showTimeFrame": false,
+        "tubeFieldConfigList": [],
+        "tubeRecordFieldConfigList": [
+            {
+                "name": "管道状态",
+                "field": "tubeStatus",
+                "valueList": [
+                    "在位通畅",
+                    "欠通畅",
+                    "堵塞"
+                ],
+                "componentType": "下拉框",
+                "isMultipleChoice": false
+            },
+            {
+                "name": "导管护理",
+                "field": "catheterNurse",
+                "valueList": [
+                    "置管执行无菌操作",
+                    "二次固定",
+                    "拔除",
+                    "换管",
+                    "更换引流袋",
+                    "夹闭",
+                    "开放"
+                ],
+                "componentType": "下拉框",
+                "isMultipleChoice": true
+            },
+            {
+                "name": "引流方式",
+                "field": "drainageWay",
+                "valueList": [
+                    "接引流袋"
+                ],
+                "componentType": "下拉框",
+                "isMultipleChoice": false
+            },
+            {
+                "name": "性状",
+                "field": "character",
+                "valueList": [
+                    "清亮",
+                    "浑浊",
+                    "含絮状物",
+                    "脓性"
+                ],
+                "componentType": "下拉框",
+                "isMultipleChoice": true
+            },
+            {
+                "name": "引流液颜色",
+                "field": "color",
+                "valueList": [
+                    "淡黄色",
+                    "黄色",
+                    "黄白色",
+                    "黄绿色",
+                    "金黄色",
+                    "黄褐色",
+                    "鲜红",
+                    "暗红色",
+                    "血性",
+                    "淡血性",
+                    "褐色",
+                    "茶色",
+                    "酱油色",
+                    "白色",
+                    "乳白色"
+                ],
+                "componentType": "下拉框",
+                "isMultipleChoice": false
+            }
+        ],
+        "copy": true,
+        "tubeMaintain": false,
+        "aKeyCancelTube": true,
+        "_class": "com.digixmed.icu.smartcare.database.entitys.tubeConfig.ConfigTubeView"
+    }
+})

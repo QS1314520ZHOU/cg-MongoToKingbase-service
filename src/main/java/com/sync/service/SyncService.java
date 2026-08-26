@@ -704,6 +704,43 @@ public class SyncService {
     }
 
     /**
+     * 同步符合模式的表（用于配置表定时任务）
+     * @param pattern 正则表达式模式
+     */
+    public Map<String, Object> syncTablesByPattern(String pattern) {
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        // 筛选符合模式的表
+        List<String> configTables = new ArrayList<>();
+        for (String table : syncConfig.getTables()) {
+            if (table.matches(pattern)) {
+                configTables.add(table);
+            }
+        }
+
+        if (configTables.isEmpty()) {
+            logger.info("No tables matched pattern: {}", pattern);
+            result.put("status", "NO_TABLES_MATCHED");
+            return result;
+        }
+
+        logger.info("Syncing config tables with pattern '{}': {}", pattern, configTables);
+
+        // 只同步筛选出的表
+        List<String> originalTables = syncConfig.getTables();
+        syncConfig.setTables(configTables);
+
+        try {
+            result = syncAll();
+        } finally {
+            // 恢复原始表列表
+            syncConfig.setTables(originalTables);
+        }
+
+        return result;
+    }
+
+    /**
      * 获取同步状态
      */
     public Map<String, Object> getSyncStatus() {
