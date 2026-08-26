@@ -32,6 +32,12 @@ public class SyncConfig {
     // 配置表名称匹配模式（正则表达式，不区分大小写，默认包含config）
     private String configTablePattern = "(?i).*config.*";
 
+    // 是否同步MongoDB中的所有表（忽略tables配置）
+    private boolean syncAllCollections = false;
+
+    // 排除的集合名称（正则表达式，不区分大小写）
+    private String excludeCollectionsPattern = "(?i)^(system\\..*|tmp.*)$";
+
     public String getCronExpression() {
         return cronExpression;
     }
@@ -127,5 +133,21 @@ public class SyncConfig {
 
     public void setConfigTablePattern(String configTablePattern) {
         this.configTablePattern = configTablePattern;
+    }
+
+    public boolean isSyncAllCollections() {
+        return syncAllCollections;
+    }
+
+    public void setSyncAllCollections(boolean syncAllCollections) {
+        this.syncAllCollections = syncAllCollections;
+    }
+
+    public String getExcludeCollectionsPattern() {
+        return excludeCollectionsPattern;
+    }
+
+    public void setExcludeCollectionsPattern(String excludeCollectionsPattern) {
+        this.excludeCollectionsPattern = excludeCollectionsPattern;
     }
 }

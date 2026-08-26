@@ -42,9 +42,26 @@ public class SyncService {
      */
     public Map<String, Object> syncAll() {
         Map<String, Object> result = new LinkedHashMap<>();
-        List<String> tables = syncConfig.getTables();
-        int batchSize = syncConfig.getBatchSize();
+        List<String> tables;
 
+        // 判断是否同步所有集合
+        if (syncConfig.isSyncAllCollections()) {
+            logger.info("Sync all collections mode enabled, discovering collections from MongoDB...");
+            tables = mongoReaderService.getAllCollections();
+
+            // 排除符合排除规则的集合
+            String excludePattern = syncConfig.getExcludeCollectionsPattern();
+            if (excludePattern != null && !excludePattern.isEmpty()) {
+                tables.removeIf(table -> table.matches(excludePattern));
+            }
+
+            logger.info("Discovered {} collections: {}", tables.size(), tables);
+        } else {
+            tables = syncConfig.getTables();
+            logger.info("Using configured tables: {}", tables.size());
+        }
+
+        int batchSize = syncConfig.getBatchSize();
         logger.info("Starting sync for {} tables: {}", tables.size(), tables);
 
         // 1. 分析所有表的状态
