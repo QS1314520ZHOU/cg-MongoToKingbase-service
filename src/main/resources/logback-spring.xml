@@ -45,19 +45,19 @@
     </appender>
 
     <!-- 应用日志 -->
-    <logger name="com.sync" level="DEBUG">
+    <logger name="com.sync" level="DEBUG" additivity="false">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ASYNC_FILE"/>
     </logger>
 
     <!-- Spring框架日志 -->
-    <logger name="org.springframework" level="INFO">
+    <logger name="org.springframework" level="INFO" additivity="false">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ASYNC_FILE"/>
     </logger>
 
     <!-- MongoDB驱动日志 -->
-    <logger name="org.mongodb" level="INFO">
+    <logger name="org.mongodb" level="INFO" additivity="false">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ASYNC_FILE"/>
     </logger>

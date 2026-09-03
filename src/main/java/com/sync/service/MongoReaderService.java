@@ -19,6 +19,9 @@ public class MongoReaderService {
     @Autowired
     private MongoDatabase mongoDatabase;
 
+    // 已确保创建过索引的集合缓存，避免每批重复调用 createIndex
+    private final Set<String> indexEnsured = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     /**
      * 获取所有集合名称
      */
@@ -193,29 +196,76 @@ public class MongoReaderService {
     }
 
     /**
-     * 根据editTime字段读取需要更新的数据
+     * 根据editTime字段读取需要更新的数据（增量）
+     * 按 (editTime asc, _id asc) 排序，配合 lastMongoId 做游标分页，
+     * 确保同一批数据不会被重复读取，也不会因同一时间戳多条而漏读。
+     *
+     * @param lastSyncTime 上次同步的水位线时间（可null，null表示从头开始）
+     * @param lastMongoId  上批最后一条文档的原始_id（可null），用于同一editTime的tie-breaker
      */
     public List<Document> readCollectionByEditTime(String collectionName, int batchSize,
-                                                    String editTimeField, Date lastSyncTime) {
+                                                    String editTimeField, Date lastSyncTime,
+                                                    Object lastMongoId) {
         List<Document> documents = new ArrayList<>();
         try {
             MongoCollection<Document> collection = mongoDatabase.getCollection(collectionName);
 
-            // 查询editTime晚于上次同步时间的文档
-            Document query = new Document(editTimeField, new Document("$gt", lastSyncTime));
+            // 确保 (editTime, _id) 复合索引存在，避免每批全表扫描排序（首轮追平积压时尤其重要）
+            ensureEditTimeIndex(collectionName, editTimeField);
+
+            Document query;
+            if (lastSyncTime == null) {
+                // 没有水位线，从头读
+                query = new Document();
+            } else if (lastMongoId == null) {
+                query = new Document(editTimeField, new Document("$gt", lastSyncTime));
+            } else {
+                // 游标分页：(editTime > t) OR (editTime == t AND _id > lastId)
+                query = new Document("$or", java.util.Arrays.asList(
+                    new Document(editTimeField, new Document("$gt", lastSyncTime)),
+                    new Document(editTimeField, new Document("$eq", lastSyncTime))
+                        .append("_id", new Document("$gt", lastMongoId))
+                ));
+            }
+
+            Document sortDoc = new Document(editTimeField, 1).append("_id", 1);
             MongoCursor<Document> cursor = collection.find(query)
+                .sort(sortDoc)
                 .limit(batchSize)
                 .iterator();
 
             while (cursor.hasNext()) {
                 documents.add(cursor.next());
             }
-            logger.debug("Read {} documents with {} > {} from {}",
-                documents.size(), editTimeField, lastSyncTime, collectionName);
+            logger.debug("Read {} documents with {} > {} from {} (lastId: {})",
+                documents.size(), editTimeField, lastSyncTime, collectionName, lastMongoId);
         } catch (Exception e) {
             logger.error("Failed to read by editTime from {}: {}", collectionName, e.getMessage(), e);
         }
         return documents;
+    }
+
+    /**
+     * 提取一批文档中的最大editTime及其对应_id
+     * （结果集已按 editTime asc, _id asc 排序，故最大值即为最后一条）
+     *
+     * @param outLastId 长度>=1的数组，用于带回最后一条文档的原始_id；可为null
+     * @return 本批最大editTime；若最后一条的editTime字段缺失或非Date类型则返回null
+     */
+    public static Date extractBatchMaxEditTime(List<Document> documents, String editTimeField,
+                                               Object[] outLastId) {
+        if (documents == null || documents.isEmpty()) {
+            return null;
+        }
+        Document lastDoc = documents.get(documents.size() - 1);
+        Object value = lastDoc.get(editTimeField);
+        if (value instanceof Date) {
+            if (outLastId != null && outLastId.length > 0) {
+                outLastId[0] = lastDoc.get("_id");
+            }
+            return (Date) value;
+        }
+        return null;
     }
 
     /**
@@ -241,6 +291,36 @@ public class MongoReaderService {
             logger.error("Failed to get max editTime from {}: {}", collectionName, e.getMessage(), e);
         }
         return null;
+    }
+
+    /**
+     * 幂等地为集合创建 (editTime, _id) 复合索引，加速增量同步的排序与游标分页查询。
+     * 同一集合仅创建一次（由 indexEnsured 缓存）；索引已存在时 createIndex 为幂等操作，不会重建。
+     * 任何异常都被吞掉，索引创建失败绝不影响同步主流程。
+     */
+    public void ensureEditTimeIndex(String collectionName, String editTimeField) {
+        if (editTimeField == null || editTimeField.isEmpty()) {
+            return;
+        }
+        String cacheKey = collectionName + "#" + editTimeField;
+        if (indexEnsured.contains(cacheKey)) {
+            return;
+        }
+        try {
+            MongoCollection<Document> collection = mongoDatabase.getCollection(collectionName);
+            Document indexKeys = new Document(editTimeField, 1).append("_id", 1);
+            // 后台索引构建，避免锁表影响在线业务（后台构建在 MongoDB 4.2+ 已弃用前台参数，
+            // 但旧版本仍可按 background:true 处理；即便不支持也只是忽略该选项）
+            collection.createIndex(indexKeys,
+                new com.mongodb.client.model.IndexOptions()
+                    .name("idx_sync_editTime_id")
+                    .background(true));
+            logger.info("Ensured index idx_sync_editTime_id on {}({}, _id)", collectionName, editTimeField);
+        } catch (Exception e) {
+            logger.warn("Failed to create index on {} (sync continues): {}", collectionName, e.getMessage());
+        } finally {
+            indexEnsured.add(cacheKey);
+        }
     }
 
     /**

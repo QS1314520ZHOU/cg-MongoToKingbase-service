@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Service
@@ -36,11 +37,30 @@ public class SyncService {
     // 记录MongoDB中每个集合的最大editTime（静态变量，供SyncStatusService访问）
     public static final Map<String, Date> maxEditTimes = new HashMap<>();
 
+    // 全局同步互斥锁：启动Runner的首次同步跑在main线程，定时同步跑在scheduling线程，
+    // 两者可能并发调用syncAll，必须互斥（否则两个流程同时搬运同一批数据、互相覆盖sync_status水位线）
+    private final AtomicBoolean syncRunning = new AtomicBoolean(false);
+
     /**
-     * 同步所有配置的表
+     * 同步所有配置的表（带全局互斥，防止并发同步）
      * 采用轮询方式：每轮各表同步一批数据，然后等待间隔时间
      */
     public Map<String, Object> syncAll() {
+        if (!syncRunning.compareAndSet(false, true)) {
+            logger.warn("syncAll is already running (startup initial sync or scheduled sync), skip this invocation");
+            Map<String, Object> skipped = new LinkedHashMap<>();
+            skipped.put("status", "SKIPPED");
+            skipped.put("reason", "another sync is already running");
+            return skipped;
+        }
+        try {
+            return doSyncAll();
+        } finally {
+            syncRunning.set(false);
+        }
+    }
+
+    private Map<String, Object> doSyncAll() {
         Map<String, Object> result = new LinkedHashMap<>();
         List<String> tables;
 
@@ -175,6 +195,7 @@ public class SyncService {
         boolean completed = false;
         int skip = 0;
         Date lastSyncTime;
+        Object lastMongoId; // 增量游标：上批最后一条文档的原始_id（tie-breaker，防止同一时间戳漏读/重复读）
         AtomicLong totalInserted = new AtomicLong(0);
         AtomicLong totalSkipped = new AtomicLong(0);
     }
@@ -248,30 +269,41 @@ public class SyncService {
             return 0;
         }
 
+        String editTimeField = syncConfig.getEditTimeField();
+        boolean incremental = !ctx.useFullSync
+            && editTimeField != null && !editTimeField.isEmpty();
+
         List<Document> documents;
         if (ctx.useFullSync) {
             // 全量同步：读取一批数据
             documents = mongoReaderService.readCollection(ctx.tableName, batchSize, ctx.skip);
         } else {
-            // 增量同步：读取editTime大于上次同步时间的数据
+            // 增量同步：读取editTime大于上次同步时间的数据（按editTime+_id排序，游标分页）
             documents = mongoReaderService.readCollectionByEditTime(
-                ctx.tableName, batchSize, syncConfig.getEditTimeField(), ctx.lastSyncTime);
+                ctx.tableName, batchSize, editTimeField, ctx.lastSyncTime, ctx.lastMongoId);
         }
 
         if (documents.isEmpty()) {
             ctx.completed = true;
             // 同步完成后，更新同步状态
+            // 水位线持久化：增量模式用当前游标水位线（本批最大editTime），
+            // 全量模式用集合最大editTime，避免用墙钟时间导致重启后跳过未同步数据
             Date maxEditTime = null;
-            if (syncConfig.getEditTimeField() != null && !syncConfig.getEditTimeField().isEmpty()) {
-                maxEditTime = mongoReaderService.getMaxEditTime(ctx.tableName, syncConfig.getEditTimeField());
+            if (editTimeField != null && !editTimeField.isEmpty()) {
+                maxEditTime = mongoReaderService.getMaxEditTime(ctx.tableName, editTimeField);
                 if (maxEditTime != null) {
                     maxEditTimes.put(ctx.tableName, maxEditTime);
                 }
             }
-            Date currentSyncTime = new Date();
-            lastSyncTimes.put(ctx.tableName, currentSyncTime);
-            syncStatusService.saveSyncStatus(ctx.tableName, currentSyncTime, maxEditTime, ctx.totalInserted.get());
-            logger.info("Saved sync status for {}: totalInserted={}", ctx.tableName, ctx.totalInserted.get());
+            Date watermark = incremental ? ctx.lastSyncTime : maxEditTime;
+            if (watermark != null) {
+                lastSyncTimes.put(ctx.tableName, watermark);
+            }
+            syncStatusService.saveSyncStatus(ctx.tableName,
+                watermark != null ? watermark : new Date(),
+                maxEditTime, ctx.totalInserted.get());
+            logger.info("Saved sync status for {}: totalInserted={}, watermark={}",
+                ctx.tableName, ctx.totalInserted.get(), watermark);
             return 0;
         }
 
@@ -326,23 +358,45 @@ public class SyncService {
         }
 
         ctx.totalInserted.addAndGet(insertedCount);
-        ctx.skip += batchSize;
 
-        logger.info("Table {} batch: read {} documents, inserted {} (new), total: {}",
-            ctx.tableName, readCount, insertedCount, ctx.totalInserted.get());
+        // 关键修复：增量模式推进水位线到本批最大editTime（结果已排序，即最后一条），
+        // 否则每轮都会重复读取同一批数据，且循环退出条件永不满足导致死循环
+        if (incremental) {
+            Object[] outLastId = new Object[1];
+            Date batchMax = MongoReaderService.extractBatchMaxEditTime(
+                documents, editTimeField, outLastId);
+            if (batchMax != null) {
+                ctx.lastSyncTime = batchMax;
+                ctx.lastMongoId = outLastId[0];
+            } else {
+                // editTime字段缺失或非Date类型，无法推进水位线，标记完成避免死循环
+                logger.warn("Table {}: batch last document has no valid editTime field '{}', stop incremental sync",
+                    ctx.tableName, editTimeField);
+                ctx.completed = true;
+            }
+        } else {
+            ctx.skip += batchSize;
+        }
 
-        // 每批同步完成后都保存同步状态
+        logger.info("Table {} batch: read {} documents, inserted {} (new), total: {}, watermark: {}",
+            ctx.tableName, readCount, insertedCount, ctx.totalInserted.get(), ctx.lastSyncTime);
+
+        // 每批同步完成后都保存同步状态（水位线用游标值，而非墙钟时间）
         Date maxEditTime = null;
-        if (syncConfig.getEditTimeField() != null && !syncConfig.getEditTimeField().isEmpty()) {
-            maxEditTime = mongoReaderService.getMaxEditTime(ctx.tableName, syncConfig.getEditTimeField());
+        if (editTimeField != null && !editTimeField.isEmpty()) {
+            maxEditTime = mongoReaderService.getMaxEditTime(ctx.tableName, editTimeField);
             if (maxEditTime != null) {
                 maxEditTimes.put(ctx.tableName, maxEditTime);
             }
         }
-        Date currentSyncTime = new Date();
-        lastSyncTimes.put(ctx.tableName, currentSyncTime);
-        syncStatusService.saveSyncStatus(ctx.tableName, currentSyncTime, maxEditTime, ctx.totalInserted.get());
-        logger.debug("Saved sync status for {}: totalInserted={}", ctx.tableName, ctx.totalInserted.get());
+        if (ctx.lastSyncTime != null) {
+            lastSyncTimes.put(ctx.tableName, ctx.lastSyncTime);
+        }
+        syncStatusService.saveSyncStatus(ctx.tableName,
+            ctx.lastSyncTime != null ? ctx.lastSyncTime : new Date(),
+            maxEditTime, ctx.totalInserted.get());
+        logger.debug("Saved sync status for {}: totalInserted={}, watermark={}",
+            ctx.tableName, ctx.totalInserted.get(), ctx.lastSyncTime);
 
         // 返回读取的文档数（而非插入数），用于判断是否还有更多数据
         return readCount;
@@ -365,10 +419,15 @@ public class SyncService {
             }
 
             int batchSize = syncConfig.getBatchSize();
+            String editTimeField = syncConfig.getEditTimeField();
+
+            // 局部水位线游标：每批推进，避免同一批数据被无限重复读取
+            Date watermark = ctx.lastSyncTime;
+            Object lastMongoId = ctx.lastMongoId;
 
             while (true) {
                 List<Document> documents = mongoReaderService.readCollectionByEditTime(
-                    ctx.tableName, batchSize, syncConfig.getEditTimeField(), ctx.lastSyncTime);
+                    ctx.tableName, batchSize, editTimeField, watermark, lastMongoId);
 
                 if (documents.isEmpty()) {
                     break;
@@ -417,23 +476,42 @@ public class SyncService {
                     ctx.kingbaseTable, processedDocs, allColumns, syncConfig.getSyncFieldName());
 
                 ctx.totalInserted.addAndGet(affected);
-                ctx.skip += batchSize;
+
+                // 推进水位线游标到本批最大editTime（结果已按editTime+_id排序，即最后一条）
+                Object[] outLastId = new Object[1];
+                Date batchMax = MongoReaderService.extractBatchMaxEditTime(
+                    documents, editTimeField, outLastId);
+                if (batchMax == null) {
+                    // editTime字段缺失或非Date类型，无法推进水位线，终止避免死循环
+                    logger.warn("Table {}: batch last document has no valid editTime field '{}', stop incremental sync",
+                        ctx.tableName, editTimeField);
+                    break;
+                }
+                watermark = batchMax;
+                lastMongoId = outLastId[0];
 
                 if (documents.size() < batchSize) {
                     break;
                 }
             }
 
+            // 回写游标到表上下文，供后续批次/状态持久化使用
+            ctx.lastSyncTime = watermark;
+            ctx.lastMongoId = lastMongoId;
+
             // 获取MongoDB中最大的editTime
-            Date maxEditTime = mongoReaderService.getMaxEditTime(ctx.tableName, syncConfig.getEditTimeField());
+            Date maxEditTime = mongoReaderService.getMaxEditTime(ctx.tableName, editTimeField);
             if (maxEditTime != null) {
                 maxEditTimes.put(ctx.tableName, maxEditTime);
             }
 
-            // 更新同步状态
-            Date currentSyncTime = new Date();
-            lastSyncTimes.put(ctx.tableName, currentSyncTime);
-            syncStatusService.saveSyncStatus(ctx.tableName, currentSyncTime, maxEditTime, ctx.totalInserted.get());
+            // 更新同步状态（水位线用游标值，而非墙钟时间）
+            if (watermark != null) {
+                lastSyncTimes.put(ctx.tableName, watermark);
+            }
+            syncStatusService.saveSyncStatus(ctx.tableName,
+                watermark != null ? watermark : new Date(),
+                maxEditTime, ctx.totalInserted.get());
 
             long duration = System.currentTimeMillis() - startTime;
             result.put("status", "SUCCESS");
@@ -453,9 +531,24 @@ public class SyncService {
     }
 
     /**
-     * 同步单个表
+     * 同步单个表（带全局互斥，与syncAll共用同一把锁）
      */
     public Map<String, Object> syncTable(String collectionName) {
+        if (!syncRunning.compareAndSet(false, true)) {
+            logger.warn("syncAll is already running, skip manual table sync for {}", collectionName);
+            Map<String, Object> skipped = new LinkedHashMap<>();
+            skipped.put("status", "SKIPPED");
+            skipped.put("reason", "another sync is already running");
+            return skipped;
+        }
+        try {
+            return doSyncTable(collectionName);
+        } finally {
+            syncRunning.set(false);
+        }
+    }
+
+    private Map<String, Object> doSyncTable(String collectionName) {
         Map<String, Object> result = new LinkedHashMap<>();
         long startTime = System.currentTimeMillis();
 
@@ -534,9 +627,13 @@ public class SyncService {
                     // 有editTime字段，使用时间戳增量同步
                     logger.info("Using editTime field for incremental sync: {}", syncConfig.getEditTimeField());
 
+                    // 局部水位线游标：每批推进，避免同一批数据被无限重复读取
+                    Date watermark = lastSyncTime;
+                    Object lastMongoId = null;
+
                     while (true) {
                         List<Document> documents = mongoReaderService.readCollectionByEditTime(
-                            collectionName, batchSize, syncConfig.getEditTimeField(), lastSyncTime);
+                            collectionName, batchSize, syncConfig.getEditTimeField(), watermark, lastMongoId);
 
                         if (documents.isEmpty()) {
                             break;
@@ -566,14 +663,29 @@ public class SyncService {
                             kingbaseTable, processedDocs, columns, syncConfig.getSyncFieldName());
 
                         totalInserted.addAndGet(affected);
-                        skip += batchSize;
+
+                        // 推进水位线游标到本批最大editTime（结果已排序，即最后一条）
+                        Object[] outLastId = new Object[1];
+                        Date batchMax = MongoReaderService.extractBatchMaxEditTime(
+                            documents, syncConfig.getEditTimeField(), outLastId);
+                        if (batchMax == null) {
+                            logger.warn("Table {}: batch last document has no valid editTime field '{}', stop incremental sync",
+                                collectionName, syncConfig.getEditTimeField());
+                            break;
+                        }
+                        watermark = batchMax;
+                        lastMongoId = outLastId[0];
 
                         if (documents.size() < batchSize) {
                             break;
                         }
 
-                        logger.info("Incremental progress: {} documents processed", totalInserted.get());
+                        logger.info("Incremental progress: {} documents processed, watermark: {}",
+                            totalInserted.get(), watermark);
                     }
+
+                    // 回写水位线，供最后的状态持久化使用
+                    lastSyncTime = watermark;
                 } else {
                     // 没有editTime字段，使用哈希校验
                     logger.info("No editTime field, using hash-based incremental sync");
@@ -694,12 +806,17 @@ public class SyncService {
             }
 
             // 7. 更新最后同步时间并持久化
-            Date currentSyncTime = new Date();
-            lastSyncTimes.put(collectionName, currentSyncTime);
+            // 水位线策略：增量模式用推进后的游标水位线（lastSyncTime已被增量分支更新），
+            // 全量模式用集合最大editTime；避免用墙钟时间导致重启后跳过未同步数据
+            Date watermark = useFullSync ? maxEditTime : lastSyncTime;
+            if (watermark != null) {
+                lastSyncTimes.put(collectionName, watermark);
+            }
 
             // 持久化同步状态到数据库
-            syncStatusService.saveSyncStatus(collectionName, currentSyncTime, maxEditTime,
-                totalInserted.get() + totalUpdated.get());
+            syncStatusService.saveSyncStatus(collectionName,
+                watermark != null ? watermark : new Date(),
+                maxEditTime, totalInserted.get() + totalUpdated.get());
 
             long duration = System.currentTimeMillis() - startTime;
             result.put("status", "SUCCESS");
@@ -708,7 +825,7 @@ public class SyncService {
             result.put("totalSkipped", totalSkipped.get());
             result.put("durationMs", duration);
             result.put("kingbaseTable", kingbaseTable);
-            result.put("lastSyncTime", currentSyncTime);
+            result.put("lastSyncTime", watermark);
             result.put("isNewTable", !tableExists);
             if (maxEditTime != null) {
                 result.put("maxEditTime", maxEditTime);
