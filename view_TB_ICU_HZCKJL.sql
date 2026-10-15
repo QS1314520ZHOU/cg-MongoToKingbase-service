@@ -91,4 +91,5 @@ SELECT
 
 FROM patient
 WHERE status = 'discharged'  -- 只查询已出科患者
-  AND icudischargetime IS NOT NULL;
+  AND icudischargetime IS NOT NULL
+  AND status <> 'invalid';    -- 排除已标记无效的记录（patient 表无 valid 字段，等价于 valid=false 过滤）

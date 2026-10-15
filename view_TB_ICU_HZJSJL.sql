@@ -131,4 +131,5 @@ SELECT
     TRUE                                    AS BSJZT
 
 FROM patient
-WHERE status = 'admitted';  -- 只查询在科患者
+WHERE status = 'admitted'        -- 只查询在科患者
+  AND status <> 'invalid';       -- 排除已标记无效的记录（patient 表无 valid 字段，等价于 valid=false 过滤）

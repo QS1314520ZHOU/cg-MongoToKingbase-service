@@ -1,0 +1,48 @@
+ SELECT 'H50010400021'::text AS cyljgdm,
+    '重钢总医院'::text AS cyljgmc,
+    (t.mongo_id || '_'::text) || (rec.value ->> 'time'::text) AS cjlid,
+    p.mrn AS czyh,
+    p.hospitaltime::smallint AS irkcs,
+    to_timestamp((((rec.value ->> 'time'::text)::bigint) / 1000)::double precision) AS dhlrqsj,
+    t.type AS cgdflbm,
+    t.name AS cgdflmc,
+        CASE
+            WHEN t.type = ANY (ARRAY['引流管'::text, 'T管'::text, '胸腔引流管'::text, '腹腔引流管'::text]) THEN t.name
+            ELSE NULL::text
+        END AS cgd_ylgmc,
+    NULL::text AS cgd_ylgjy,
+        CASE
+            WHEN (rec.value ->> 'catheterNurse'::text) ~~ '%更换引流袋%'::text THEN '是'::text
+            ELSE NULL::text
+        END AS cgd_ylggh,
+        CASE
+            WHEN t.type = ANY (ARRAY['中心静脉'::text, '外周静脉'::text, 'PICC'::text]) THEN rec.value ->> 'color'::text
+            ELSE NULL::text
+        END AS cgd_jmys,
+        CASE
+            WHEN t.type = ANY (ARRAY['中心静脉'::text, '外周静脉'::text, 'PICC'::text]) THEN t.name
+            ELSE NULL::text
+        END AS cgd_jmmc,
+        CASE
+            WHEN t.type = ANY (ARRAY['中心静脉'::text, '外周静脉'::text, 'PICC'::text]) THEN rec.value ->> 'catheterNurse'::text
+            ELSE NULL::text
+        END AS cgd_jmhl,
+    COALESCE(t.unplannedendtube, false) AS bfjhbg,
+        CASE
+            WHEN t.tubedrawingreason ~~ '%滑脱%'::text THEN true
+            ELSE false
+        END AS bgdht,
+    NULL::text AS bgdhtzcg,
+    COALESCE(t.nocalagain48h, false) AS b48xsnzzg,
+    rec.value ->> 'recordUser'::text AS chsbm,
+    rec.value ->> 'recordUserName'::text AS chsqm,
+    t.mongotokingdate AS dsjcjsj,
+    t.mongotokingdate AS dsjzlsj,
+        CASE
+            WHEN (rec.value ->> 'valid'::text) = 'true'::text THEN true
+            ELSE false
+        END AS bsjzt
+   FROM tubeexe t
+     JOIN patient p ON t.pid = p.mongo_id,
+    LATERAL jsonb_array_elements(t.tuberecordlist) rec(value)
+  WHERE t.valid = true AND p.status = 'admitted'::text AND (rec.value ->> 'valid'::text) = 'true'::text

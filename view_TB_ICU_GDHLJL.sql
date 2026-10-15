@@ -108,6 +108,7 @@ SELECT
 FROM tubeexe t
     INNER JOIN patient p ON t.pid = p.mongo_id,
     LATERAL jsonb_array_elements(t.tuberecordlist) AS rec
-WHERE t.valid = TRUE                        -- 只查询有效的管道记录
+WHERE t.valid IS NOT FALSE                   -- 只查询有效的管道记录（兼容 true 与 NULL）
   AND p.status = 'admitted'                 -- 只查询在科患者
-  AND rec->>'valid' = 'true';               -- 只查询有效的护理记录
+  AND p.status <> 'invalid'                 -- 排除已标记无效的患者（patient 表无 valid 字段）
+  AND (COALESCE(NULLIF(rec->>'valid','')::boolean, TRUE)) IS NOT FALSE;  -- 只查询有效的护理记录（兼容 true、缺失/空串，排除 false）

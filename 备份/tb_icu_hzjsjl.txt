@@ -1,0 +1,56 @@
+ SELECT 'H50010400021'::text AS cyljgdm,
+    '重钢总医院'::text AS cyljgmc,
+    patient.mongo_id AS cjlid,
+    patient.hospitaltime::smallint AS irkcs,
+    patient.hispid AS chzbs,
+    patient.name AS chzxm,
+        CASE
+            WHEN patient.gender = 'Male'::text THEN '1'::text
+            WHEN patient.gender = 'Female'::text THEN '2'::text
+            ELSE NULL::text
+        END AS cxbdm,
+        CASE
+            WHEN patient.gender = 'Male'::text THEN '男'::text
+            WHEN patient.gender = 'Female'::text THEN '女'::text
+            ELSE patient.gender
+        END AS cxbmc,
+    patient.birthday AS dcsrq,
+    patient.tel AS cjjdhhm,
+    patient.mrn AS czyh,
+    patient.hisbed AS cbch,
+    patient.admissionsourcecode AS cysbqdm,
+    patient.admissionsource AS cysbqmc,
+    patient.icuadmissiontime AS drkrqsj,
+        CASE
+            WHEN patient.admissiontype = '转入'::text THEN '2'::text
+            WHEN patient.admissiontype = '入院'::text THEN '1'::text
+            WHEN patient.admissiontype = '急诊'::text THEN '1'::text
+            WHEN patient.admissiontype = '手术'::text THEN '3'::text
+            ELSE '9'::text
+        END AS crkfsdm,
+    patient.admissiontype AS crkfsmc,
+        CASE
+            WHEN patient.admissionplan = '计划转入'::text THEN false
+            WHEN patient.admissionplan IS NOT NULL THEN true
+            ELSE NULL::boolean
+        END AS bfjhzricu,
+    NULL::text AS byqsw,
+    patient.deptcode AS cicubqdm,
+    patient.dept AS cicubqmc,
+    NULL::text AS ciculxdm,
+    NULL::text AS ifyqzrk,
+    patient.beddoctorid AS czzhysdm,
+    patient.bedphysician AS czzhysqm,
+        CASE
+            WHEN patient.clinicaldiagnosiscodelist IS NOT NULL AND patient.clinicaldiagnosiscodelist <> '[]'::text THEN split_part(replace(replace(replace(patient.clinicaldiagnosiscodelist, '['::text, ''::text), ']'::text, ''::text), '"'::text, ''::text), ','::text, 1)
+            ELSE NULL::text
+        END AS cjbzdbm,
+    patient.clinicaldiagnosis AS cjbzdmc,
+    NULL::text AS cssczdm,
+    NULL::text AS cssczmc,
+    patient.chiefcomplaint AS cbz,
+    patient.createdtime AS dsjcjsj,
+    patient.mongotokingdate AS dsjzlsj,
+    true AS bsjzt
+   FROM patient
+  WHERE patient.status = 'admitted'::text

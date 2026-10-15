@@ -28,6 +28,15 @@ public class KingbaseWriterService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
+     * PostgreSQL JDBC 驱动绑定参数个数上限（按 2 字节发送）。
+     * 服务端是 65535，驱动侧更严，取小值。
+     */
+    private static final int MAX_BIND_PARAMS = 32767;
+
+    /** 已确认用不了 ON CONFLICT（缺 UNIQUE(mongo_id)）的表，之后都走逐行回退 */
+    private final Set<String> noFastUpsertTables = Collections.synchronizedSet(new HashSet<String>());
+
+    /**
      * 检查表是否存在
      */
     public boolean tableExists(String tableName) {
@@ -69,28 +78,83 @@ public class KingbaseWriterService {
             Map<String, String> existingColumns = getTableColumns(tableName);
 
             for (String col : columns) {
-                String sanitizedCol = col.replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase();
-                if (!existingColumns.containsKey(sanitizedCol)) {
+                String sanitizedRaw = col.replaceAll("[^a-zA-Z0-9_]", "_");
+                String sanitizedCol = sanitizedRaw.toLowerCase();
+                // 保留字列建表时被加了双引号，PG 会保留原始大小写（如 "Order"），
+                // 只查小写会误判为"列不存在"→重复 ADD COLUMN，故两种写法都要查
+                if (!existingColumns.containsKey(sanitizedCol) && !existingColumns.containsKey(sanitizedRaw)) {
                     // 列不存在，添加列
-                    String colType = "TEXT"; // 默认使用TEXT类型
-                    if (col.toLowerCase().contains("time") || col.toLowerCase().contains("date")) {
-                        colType = "TIMESTAMP";
-                    } else if (col.toLowerCase().contains("valid") || col.toLowerCase().contains("flag")) {
-                        colType = "BOOLEAN";
-                    } else if (col.toLowerCase().contains("count") || col.toLowerCase().contains("times")) {
-                        colType = "INTEGER";
-                    } else if (col.toLowerCase().contains("val") || col.toLowerCase().contains("num")) {
-                        colType = "NUMERIC";
-                    }
+                    String colType = inferColumnType(sanitizedCol);
 
                     String sql = "ALTER TABLE " + tableName + " ADD COLUMN " + escapeReservedKeyword(sanitizedCol) + " " + colType;
-                    logger.info("Adding missing column {} to table {}", sanitizedCol, tableName);
+                    logger.info("Adding missing column {} to {} to table {}", sanitizedCol, colType, tableName);
                     jdbcTemplate.execute(sql);
                 }
             }
         } catch (Exception e) {
             logger.warn("Failed to ensure columns exist: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 根据列名推断 Kingbase 列类型（仅用于动态新增列）。
+     *
+     * 【教训 / 必须遵守】旧实现用 {@code contains("count")} 判断 INTEGER，
+     * 结果 {@code accountId} 含子串 "count"（ac-count-id）、{@code cancelAccountName} 同理，
+     * 被建成 INTEGER，写入 ObjectId / 中文姓名时报
+     * {@code invalid input syntax for type integer: "6a1f9f01..."}。
+     * 实测导致 nurserecords / nurserecords_copy1 两表 6 个列写不进数据。
+     *
+     * 【原则】TEXT 是唯一安全兜底（任何值都能装），所以：
+     *   ① 判定用 endsWith 而不是 contains，避免子串误命中；
+     *   ② id / name / code / no 这类「标识·名称·编码」后缀一律 TEXT，绝不猜成数字；
+     *   ③ 布尔判定放在标识判定之前，否则 {@code valid} 会因为 endsWith("id") 被误判成 TEXT。
+     */
+    private String inferColumnType(String col) {
+        String compact = col == null ? "" : col.toLowerCase().replace("_", "");
+        if (compact.isEmpty()) {
+            return "TEXT";
+        }
+        // 1. 布尔（必须先判，"valid" 尾部的 "id" 会撞上第 2 条）
+        if (compact.endsWith("valid") || compact.endsWith("flag")
+                || compact.endsWith("enabled") || compact.endsWith("deleted")
+                || compact.endsWith("boolean") || compact.endsWith("bool")) {
+            return "BOOLEAN";
+        }
+        // 2. 标识 / 名称 / 编码 → 严格 TEXT
+        if (compact.endsWith("id") || compact.endsWith("name") || compact.endsWith("code")
+                || compact.endsWith("no") || compact.endsWith("key") || compact.endsWith("uuid")
+                || compact.endsWith("url") || compact.endsWith("path")) {
+            return "TEXT";
+        }
+        // 3. 时间
+        if (compact.endsWith("time") || compact.endsWith("date")) {
+            return "TIMESTAMP";
+        }
+        // 4. 计数 / 序号（用 endsWith，"accountId" 不会命中）
+        if (compact.endsWith("count") || compact.endsWith("times") || compact.endsWith("num")) {
+            return "INTEGER";
+        }
+        // 5. 其余一律 TEXT 兜底：宁愿存成字符串，也不要建出一个写不进去的数字列
+        return "TEXT";
+    }
+
+    /**
+     * 列名去重：sanitize后相同的列只保留第一个（防重复列导致SQL语法错误）。
+     * 不同Mongo字段名sanitize后可能坍缩同名（如嵌套路径/特殊字符），必须去重。
+     */
+    private List<String> dedupeColumns(List<String> columns) {
+        List<String> result = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (String col : columns) {
+            String sanitized = col.replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase();
+            if (seen.add(sanitized)) {
+                result.add(col);
+            } else {
+                logger.warn("Duplicated column after sanitize, keeping first occurrence only: {}", col);
+            }
+        }
+        return result;
     }
 
     /**
@@ -102,11 +166,17 @@ public class KingbaseWriterService {
             sql.append("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (\n");
             sql.append("    id SERIAL PRIMARY KEY,\n");
 
+            Set<String> seenCols = new LinkedHashSet<>();
             List<String> columnDefs = new ArrayList<>();
             for (Map.Entry<String, String> entry : columns.entrySet()) {
                 String colName = entry.getKey().replaceAll("[^a-zA-Z0-9_]", "_");
                 // 处理SQL保留关键字
                 colName = escapeReservedKeyword(colName);
+                // 去重：sanitize后同名列只建一次（否则 CREATE TABLE 报 column specified more than once）
+                if (!seenCols.add(colName.toLowerCase())) {
+                    logger.warn("createTable {}: duplicated column {} after sanitize, skipped", tableName, colName);
+                    continue;
+                }
                 String colType = mapMongoTypeToKingbase(entry.getValue());
                 columnDefs.add("    " + colName + " " + colType);
             }
@@ -200,6 +270,16 @@ public class KingbaseWriterService {
     }
 
     /**
+     * 列名规范化：sanitize（仅保留字母/数字/下划线）+ 保留字加双引号。
+     * 【强制】所有拼接列名的 SQL 路径（INSERT / UPDATE / UPSERT / DDL）必须统一走这里。
+     * 否则保留字列（如 order / desc / group）在建表时被加引号、写数据时却没加，
+     * 会表现为"表建得出来、数据却写不进去"的 syntax error，且只在增量/更新路径暴露。
+     */
+    private String normalizeColumnName(String columnName) {
+        return escapeReservedKeyword(columnName.replaceAll("[^a-zA-Z0-9_]", "_"));
+    }
+
+    /**
      * 删除表
      */
     public void dropTable(String tableName) {
@@ -223,13 +303,13 @@ public class KingbaseWriterService {
         }
 
         try {
+            columns = dedupeColumns(columns);
             StringBuilder sql = new StringBuilder();
             sql.append("INSERT INTO ").append(tableName).append(" (");
 
             List<String> sanitizedColumns = new ArrayList<>();
             for (String col : columns) {
-                String sanitized = col.replaceAll("[^a-zA-Z0-9_]", "_");
-                sanitizedColumns.add(escapeReservedKeyword(sanitized));
+                sanitizedColumns.add(normalizeColumnName(col));
             }
             sql.append(String.join(", ", sanitizedColumns));
             sql.append(") VALUES ");
@@ -268,11 +348,12 @@ public class KingbaseWriterService {
 
         int totalUpdated = 0;
         try {
+            columns = dedupeColumns(columns);
             // 准备列名（排除mongo_id）
             List<String> sanitizedColumns = new ArrayList<>();
             for (String col : columns) {
                 if (!"mongo_id".equals(col)) {
-                    sanitizedColumns.add(col.replaceAll("[^a-zA-Z0-9_]", "_"));
+                    sanitizedColumns.add(normalizeColumnName(col));
                 }
             }
 
@@ -285,7 +366,7 @@ public class KingbaseWriterService {
 
                 for (String col : sanitizedColumns) {
                     setClauses.add(col + " = ?");
-                    params.add(extractValue(doc, col.replace("_", ".")));
+                    params.add(extractValue(doc, col));
                 }
 
                 // 添加同步时间字段
@@ -321,98 +402,190 @@ public class KingbaseWriterService {
 
     /**
      * 批量Upsert数据（存在则更新，不存在则插入）
+     *
+     * 【性能】旧实现是「逐行 SELECT COUNT(*) + UPDATE/INSERT」，N 行 = 2N 次网络往返，
+     * 生产实测 2000 行要 ~60 秒。现改为多行「INSERT ... ON CONFLICT (mongo_id) DO UPDATE」，
+     * 每块只 1 次往返，实测 2000 行 ~0.2 秒。
+     *
+     * 【重要】PostgreSQL JDBC 驱动把绑定参数个数按 2 字节发送，上限 32767
+     * （不是服务端的 65535）。超过会抛
+     * "Tried to send an out-of-range integer as a 2-byte value"，
+     * 因此必须按列数动态切块，绝不能整批塞进一条语句。
      */
     public int batchUpsert(String tableName, List<Document> documents,
                             List<String> columns, String syncFieldName) {
         if (documents.isEmpty()) {
             return 0;
         }
-
-        int totalAffected = 0;
         try {
+            columns = dedupeColumns(columns);
             // 确保所有列都存在
             ensureColumnsExist(tableName, columns);
 
-            for (Document doc : documents) {
-                // 处理不同类型的_id字段（ObjectId或String）
-                Object idValue = doc.get("_id");
-                String mongoId;
-                if (idValue instanceof org.bson.types.ObjectId) {
-                    mongoId = ((org.bson.types.ObjectId) idValue).toString();
-                } else if (idValue != null) {
-                    mongoId = idValue.toString();
-                } else {
-                    mongoId = java.util.UUID.randomUUID().toString();
+            List<String> quotedColumns = new ArrayList<>(columns.size());
+            for (String col : columns) {
+                quotedColumns.add(normalizeColumnName(col));
+            }
+            String columnList = String.join(", ", quotedColumns);
+            List<String> setClauses = new ArrayList<>(quotedColumns.size());
+            for (String qc : quotedColumns) {
+                setClauses.add(qc + " = EXCLUDED." + qc);
+            }
+            String updateClause = String.join(", ", setClauses);
+
+            int chunkSize = upsertChunkSize(quotedColumns.size());
+            int totalAffected = 0;
+
+            for (int start = 0; start < documents.size(); start += chunkSize) {
+                int end = Math.min(documents.size(), start + chunkSize);
+                List<Document> slice = documents.subList(start, end);
+
+                if (noFastUpsertTables.contains(tableName)) {
+                    // 该表已确认用不了 ON CONFLICT，本表以后都走逐行方式
+                    totalAffected += perRowUpsert(tableName, slice, columns, syncFieldName);
+                    continue;
                 }
 
-                // 检查是否已存在
-                String checkSql = "SELECT COUNT(*) FROM " + tableName + " WHERE mongo_id = ?";
-                Integer count = jdbcTemplate.queryForObject(checkSql, Integer.class, mongoId);
-
-                if (count != null && count > 0) {
-                    // 存在则更新
-                    List<String> sanitizedColumns = new ArrayList<>();
-                    for (String col : columns) {
-                        if (!"mongo_id".equals(col)) {
-                            sanitizedColumns.add(col.replaceAll("[^a-zA-Z0-9_]", "_"));
-                        }
+                try {
+                    totalAffected += executeMultiRowUpsert(tableName, slice, columns, columnList, updateClause);
+                } catch (Exception e) {
+                    if (isMissingUniqueConstraint(e)) {
+                        noFastUpsertTables.add(tableName);
+                        logger.warn("Table {} has no UNIQUE(mongo_id) usable by ON CONFLICT, "
+                                + "falling back to per-row upsert for this table", tableName);
+                    } else {
+                        logger.error("Multi-row upsert failed on {} ({} rows), falling back to per-row: {}",
+                                tableName, slice.size(), e.getMessage());
                     }
-
-                    StringBuilder updateSql = new StringBuilder();
-                    updateSql.append("UPDATE ").append(tableName).append(" SET ");
-
-                    List<Object> params = new ArrayList<>();
-                    List<String> setClauses = new ArrayList<>();
-
-                    for (String col : sanitizedColumns) {
-                        setClauses.add(col + " = ?");
-                        params.add(extractValue(doc, col.replace("_", ".")));
-                    }
-
-                    // 添加同步时间字段（如果还没包含）
-                    if (!sanitizedColumns.contains(syncFieldName)) {
-                        setClauses.add(syncFieldName + " = ?");
-                        params.add(new java.sql.Timestamp(System.currentTimeMillis()));
-                    }
-
-                    updateSql.append(String.join(", ", setClauses));
-                    updateSql.append(" WHERE mongo_id = ?");
-
-                    params.add(mongoId);
-
-                    totalAffected += jdbcTemplate.update(updateSql.toString(), params.toArray());
-                } else {
-                    // 不存在则插入
-                    List<String> sanitizedColumns = new ArrayList<>();
-                    for (String col : columns) {
-                        sanitizedColumns.add(col.replaceAll("[^a-zA-Z0-9_]", "_"));
-                    }
-
-                    StringBuilder insertSql = new StringBuilder();
-                    insertSql.append("INSERT INTO ").append(tableName).append(" (");
-                    insertSql.append(String.join(", ", sanitizedColumns));
-                    insertSql.append(") VALUES ");
-
-                    List<Object> params = new ArrayList<>();
-                    List<String> placeholders = new ArrayList<>();
-
-                    for (String col : columns) {
-                        placeholders.add("?");
-                        params.add(extractValue(doc, col));
-                    }
-
-                    insertSql.append("(").append(String.join(", ", placeholders)).append(")");
-
-                    totalAffected += jdbcTemplate.update(insertSql.toString(), params.toArray());
+                    totalAffected += perRowUpsert(tableName, slice, columns, syncFieldName);
                 }
             }
 
-            logger.debug("Upserted {} rows in {}", totalAffected, tableName);
+            logger.debug("Upserted {} rows in {} (chunkSize={})", totalAffected, tableName, chunkSize);
+            return totalAffected;
         } catch (Exception e) {
             logger.error("Failed to batch upsert in {}: {}", tableName, e.getMessage(), e);
             throw e;
         }
+    }
+
+    /**
+     * 多行 INSERT ... ON CONFLICT (mongo_id) DO UPDATE，一次网络往返写完整个 chunk。
+     */
+    private int executeMultiRowUpsert(String tableName, List<Document> docs, List<String> columns,
+                                       String columnList, String updateClause) {
+        StringBuilder sql = new StringBuilder(256 + docs.size() * columns.size() * 3);
+        sql.append("INSERT INTO ").append(tableName).append(" (").append(columnList).append(") VALUES ");
+
+        List<Object> params = new ArrayList<>(docs.size() * columns.size());
+        for (int r = 0; r < docs.size(); r++) {
+            if (r > 0) {
+                sql.append(", ");
+            }
+            sql.append("(");
+            Document doc = docs.get(r);
+            for (int k = 0; k < columns.size(); k++) {
+                if (k > 0) {
+                    sql.append(", ");
+                }
+                sql.append("?");
+                params.add(columnValue(doc, columns.get(k)));
+            }
+            sql.append(")");
+        }
+
+        sql.append(" ON CONFLICT (mongo_id) DO UPDATE SET ").append(updateClause);
+        return jdbcTemplate.update(sql.toString(), params.toArray());
+    }
+
+    /**
+     * 逐行 upsert（回退路径）：仅用于没有 UNIQUE(mongo_id)、用不了 ON CONFLICT 的表。
+     * 单行失败只记 ERROR 并继续，不让一行脏数据冻结整张表。
+     */
+    private int perRowUpsert(String tableName, List<Document> documents,
+                              List<String> columns, String syncFieldName) {
+        int totalAffected = 0;
+        for (Document doc : documents) {
+            String mongoId = String.valueOf(columnValue(doc, "mongo_id"));
+            try {
+                Integer count = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM " + tableName + " WHERE mongo_id = ?", Integer.class, mongoId);
+
+                if (count != null && count > 0) {
+                    List<String> setClauses = new ArrayList<>();
+                    List<Object> params = new ArrayList<>();
+                    boolean hasSyncField = false;
+                    for (String col : columns) {
+                        if ("mongo_id".equals(col)) {
+                            continue;
+                        }
+                        if (col.equalsIgnoreCase(syncFieldName)) {
+                            hasSyncField = true;
+                        }
+                        setClauses.add(normalizeColumnName(col) + " = ?");
+                        params.add(extractValue(doc, col));
+                    }
+                    if (!hasSyncField) {
+                        setClauses.add(normalizeColumnName(syncFieldName) + " = ?");
+                        params.add(new java.sql.Timestamp(System.currentTimeMillis()));
+                    }
+                    params.add(mongoId);
+                    totalAffected += jdbcTemplate.update(
+                            "UPDATE " + tableName + " SET " + String.join(", ", setClauses)
+                                    + " WHERE mongo_id = ?", params.toArray());
+                } else {
+                    List<String> quotedColumns = new ArrayList<>(columns.size());
+                    List<Object> params = new ArrayList<>(columns.size());
+                    for (String col : columns) {
+                        quotedColumns.add(normalizeColumnName(col));
+                        params.add(columnValue(doc, col));
+                    }
+                    totalAffected += jdbcTemplate.update(
+                            "INSERT INTO " + tableName + " (" + String.join(", ", quotedColumns)
+                                    + ") VALUES (" + String.join(", ", Collections.nCopies(columns.size(), "?")) + ")",
+                            params.toArray());
+                }
+            } catch (Exception e) {
+                logger.error("Failed to upsert document {} into {}: {}", mongoId, tableName, e.getMessage());
+            }
+        }
         return totalAffected;
+    }
+
+    /**
+     * 取列值。mongo_id 为空时用 _id 兜底——否则 ON CONFLICT 永不命中，
+     * 每轮同步都会写出重复行。
+     */
+    private Object columnValue(Document doc, String column) {
+        Object value = extractValue(doc, column);
+        if (value == null && "mongo_id".equalsIgnoreCase(column)) {
+            Object idValue = doc.get("_id");
+            if (idValue instanceof org.bson.types.ObjectId) {
+                return ((org.bson.types.ObjectId) idValue).toString();
+            } else if (idValue != null) {
+                return idValue.toString();
+            }
+            return java.util.UUID.randomUUID().toString();
+        }
+        return value;
+    }
+
+    /** 每块最大行数：保证 rows * cols 不超过 JDBC 驱动 32767 的绑定参数上限 */
+    private int upsertChunkSize(int columnCount) {
+        int byParams = MAX_BIND_PARAMS / Math.max(1, columnCount);
+        return Math.max(1, Math.min(1000, byParams));
+    }
+
+    private boolean isMissingUniqueConstraint(Throwable e) {
+        Throwable cur = e;
+        while (cur != null) {
+            String msg = cur.getMessage();
+            if (msg != null && msg.contains("no unique or exclusion constraint matching")) {
+                return true;
+            }
+            cur = cur.getCause();
+        }
+        return false;
     }
 
     /**
@@ -582,7 +755,7 @@ public class KingbaseWriterService {
     }
 
     /**
-     * 根据mongo_id获取哈希值
+     * 根据mongo_id获取哈希值（单条，保留兼容）
      */
     public String getHashByMongoId(String tableName, String mongoId) {
         try {
@@ -595,58 +768,127 @@ public class KingbaseWriterService {
     }
 
     /**
+     * 批量根据mongo_id获取哈希值（一次 IN 查询，避免逐行查询的 N+1 性能问题）。
+     * 表不存在 / 无 _data_hash 列 / 查询异常时返回空 Map，
+     * 调用方据此会把全部文档判定为「已变化」并执行 upsert，属安全降级。
+     */
+    public Map<String, String> getHashByMongoIds(String tableName, List<String> mongoIds) {
+        Map<String, String> result = new HashMap<>();
+        if (mongoIds == null || mongoIds.isEmpty()) {
+            return result;
+        }
+        try {
+            StringBuilder sql = new StringBuilder("SELECT mongo_id, _data_hash FROM ")
+                .append(tableName).append(" WHERE mongo_id IN (");
+            for (int i = 0; i < mongoIds.size(); i++) {
+                if (i > 0) {
+                    sql.append(",");
+                }
+                sql.append("?");
+            }
+            sql.append(")");
+
+            jdbcTemplate.query(sql.toString(), rs -> {
+                result.put(rs.getString("mongo_id"), rs.getString("_data_hash"));
+            }, mongoIds.toArray());
+        } catch (Exception e) {
+            logger.warn("Failed to batch-load hashes from {}: {}", tableName, e.getMessage());
+        }
+        return result;
+    }
+
+    /**
      * 批量插入数据（忽略重复的mongo_id）
+     *
+     * 多行 INSERT ... ON CONFLICT (mongo_id) DO NOTHING：每块 1 次往返，
+     * 而不是旧实现的逐行一次。注意 ON CONFLICT DO NOTHING 不带冲突目标时
+     * 不需要唯一索引也合法，所以这里无需判断约束。
      */
     public int batchInsertIgnoreDuplicate(String tableName, List<Document> documents, List<String> columns) {
         if (documents.isEmpty()) {
             return 0;
         }
 
-        int insertedCount = 0;
         try {
+            columns = dedupeColumns(columns);
             // 确保所有列都存在
             ensureColumnsExist(tableName, columns);
 
-            for (Document doc : documents) {
+            List<String> quotedColumns = new ArrayList<>(columns.size());
+            for (String col : columns) {
+                quotedColumns.add(normalizeColumnName(col));
+            }
+            String columnList = String.join(", ", quotedColumns);
+            int chunkSize = upsertChunkSize(quotedColumns.size());
+
+            int insertedCount = 0;
+            for (int start = 0; start < documents.size(); start += chunkSize) {
+                int end = Math.min(documents.size(), start + chunkSize);
+                List<Document> slice = documents.subList(start, end);
                 try {
-                    StringBuilder sql = new StringBuilder();
-                    sql.append("INSERT INTO ").append(tableName).append(" (");
-
-                    List<String> sanitizedColumns = new ArrayList<>();
-                    for (String col : columns) {
-                        String sanitized = col.replaceAll("[^a-zA-Z0-9_]", "_");
-                        sanitizedColumns.add(escapeReservedKeyword(sanitized));
-                    }
-                    sql.append(String.join(", ", sanitizedColumns));
-                    sql.append(") VALUES ");
-
-                    List<Object> params = new ArrayList<>();
-                    List<String> placeholders = new ArrayList<>();
-
-                    for (String col : columns) {
-                        placeholders.add("?");
-                        params.add(extractValue(doc, col));
-                    }
-
-                    sql.append("(").append(String.join(", ", placeholders)).append(")");
-                    sql.append(" ON CONFLICT (mongo_id) DO NOTHING");
-
-                    int affected = jdbcTemplate.update(sql.toString(), params.toArray());
-                    insertedCount += affected;
+                    insertedCount += executeMultiRowInsertIgnore(tableName, slice, columns, columnList);
                 } catch (Exception e) {
-                    // 处理不同类型的_id字段用于日志输出
-                    Object idValue = doc.get("_id");
-                    String mongoIdForLog = idValue != null ? idValue.toString() : "unknown";
-                    logger.warn("Failed to insert document {}: {}", mongoIdForLog, e.getMessage());
+                    logger.error("Multi-row insert failed on {} ({} rows), falling back to per-row: {}",
+                            tableName, slice.size(), e.getMessage());
+                    insertedCount += perRowInsertIgnore(tableName, slice, columns, columnList);
                 }
             }
 
-            logger.debug("Inserted {} rows into {}", insertedCount, tableName);
+            logger.debug("Inserted {} rows into {} (chunkSize={})", insertedCount, tableName, chunkSize);
+            return insertedCount;
         } catch (Exception e) {
             logger.error("Failed to batch insert into {}: {}", tableName, e.getMessage(), e);
             throw e;
         }
-        return insertedCount;
+    }
+
+    private int executeMultiRowInsertIgnore(String tableName, List<Document> docs,
+                                             List<String> columns, String columnList) {
+        StringBuilder sql = new StringBuilder(256 + docs.size() * columns.size() * 3);
+        sql.append("INSERT INTO ").append(tableName).append(" (").append(columnList).append(") VALUES ");
+
+        List<Object> params = new ArrayList<>(docs.size() * columns.size());
+        for (int r = 0; r < docs.size(); r++) {
+            if (r > 0) {
+                sql.append(", ");
+            }
+            sql.append("(");
+            Document doc = docs.get(r);
+            for (int k = 0; k < columns.size(); k++) {
+                if (k > 0) {
+                    sql.append(", ");
+                }
+                sql.append("?");
+                params.add(columnValue(doc, columns.get(k)));
+            }
+            sql.append(")");
+        }
+
+        sql.append(" ON CONFLICT (mongo_id) DO NOTHING");
+        return jdbcTemplate.update(sql.toString(), params.toArray());
+    }
+
+    private int perRowInsertIgnore(String tableName, List<Document> docs,
+                                    List<String> columns, String columnList) {
+        int inserted = 0;
+        for (Document doc : docs) {
+            try {
+                List<Object> params = new ArrayList<>(columns.size());
+                for (String col : columns) {
+                    params.add(columnValue(doc, col));
+                }
+                inserted += jdbcTemplate.update(
+                        "INSERT INTO " + tableName + " (" + columnList + ") VALUES ("
+                                + String.join(", ", Collections.nCopies(columns.size(), "?"))
+                                + ") ON CONFLICT (mongo_id) DO NOTHING",
+                        params.toArray());
+            } catch (Exception e) {
+                Object idValue = doc.get("_id");
+                logger.warn("Failed to insert document {}: {}",
+                        idValue != null ? idValue.toString() : "unknown", e.getMessage());
+            }
+        }
+        return inserted;
     }
 
     /**

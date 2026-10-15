@@ -1,0 +1,192 @@
+db.score.update({ _id: ObjectId("6a9f6d0fe08ccc1f453c9020") }, {
+    $set: {
+        "pid": "6a85bdf9d3f5ba72ab12dd3e",
+        "time": ISODate("2026-09-08T10:00:15.977+08:00"),
+        "scoreType": "apacheII",
+        "total": NumberInt(50),
+        "conclusion": "极度严重",
+        "valid": true,
+        "inputUserId": "666a7c3f5f7b871cf8ac79fd",
+        "inputUser": "工程师",
+        "nurseMeasureList": [],
+        "editHistoryList": [],
+        "apacheII": {
+            "totalScore": NumberInt(50),
+            "scoreDate": ISODate("2026-09-08T10:00:15.977+08:00"),
+            "editDate": ISODate("2026-09-08T10:03:17.112+08:00"),
+            "isValidate": false,
+            "gcs": {
+                "totalScore": NumberInt(9),
+                "confirm": true,
+                "eyeScore": {
+                    "score": NumberInt(2)
+                },
+                "languageScore": {
+                    "score": NumberInt(2)
+                },
+                "sportScore": {
+                    "score": NumberInt(2)
+                }
+            },
+            "hr": {
+                "field": "hr",
+                "score": NumberInt(0),
+                "value": 99,
+                "confirm": true
+            },
+            "temp": {
+                "field": "temp",
+                "score": NumberInt(1),
+                "value": 35,
+                "confirm": true
+            },
+            "bp": {
+                "field": "bp",
+                "score": NumberInt(0),
+                "value": 90,
+                "confirm": true
+            },
+            "k": {
+                "field": "k",
+                "score": NumberInt(4),
+                "value": 999,
+                "confirm": true
+            },
+            "na": {
+                "field": "na",
+                "score": NumberInt(4),
+                "value": 78,
+                "confirm": true
+            },
+            "ph": {
+                "field": "ph",
+                "score": NumberInt(4),
+                "confirm": true
+            },
+            "rr": {
+                "field": "rr",
+                "score": NumberInt(4),
+                "value": 110,
+                "confirm": true
+            },
+            "wbc": {
+                "field": "wbc",
+                "score": NumberInt(4),
+                "value": 777,
+                "confirm": true
+            },
+            "yaji": {
+                "field": "yaji",
+                "score": NumberInt(4),
+                "value": 555,
+                "confirm": true
+            },
+            "age": {
+                "field": "age",
+                "score": NumberInt(6),
+                "value": 78,
+                "confirm": true
+            },
+            "hco3": {
+                "field": "hco3",
+                "confirm": true
+            },
+            "fio2": {
+                "fio2": {
+                    "field": "fio2",
+                    "value": 89
+                },
+                "paO2": {
+                    "field": "paO2"
+                },
+                "aaDO2": {
+                    "field": "aaDO2",
+                    "score": NumberInt(4),
+                    "value": 666
+                },
+                "confirm": true
+            },
+            "cr": {
+                "isTurbo": false,
+                "field": "cr_apacheii",
+                "score": NumberInt(4),
+                "value": 444,
+                "confirm": true
+            },
+            "manXing": {
+                "isGan": true,
+                "isShen": true,
+                "isXin": true,
+                "isMianyi": true,
+                "isHuxi": true,
+                "isWu": false,
+                "field": "manXing",
+                "score": NumberInt(2),
+                "confirm": true
+            },
+            "startTime": ISODate("2026-09-07T10:00:15.977+08:00"),
+            "endTime": ISODate("2026-09-08T10:00:15.977+08:00"),
+            "calDead": {
+                "score": 0.9907515048980713,
+                "isNoOper": true,
+                "isJiZhenShoushu": false,
+                "xiaochuan": false,
+                "copd": false,
+                "feixinyuanxing": false,
+                "huxitingzhi": false,
+                "wuxi": false,
+                "zhongdu": false,
+                "feishuansai": false,
+                "ganran": false,
+                "zhongliu": true,
+                "gaoxueya": false,
+                "xinlvshichang": false,
+                "chongxuexinsuai": false,
+                "shixuexing": false,
+                "guanxinbing": false,
+                "nongduzhengsepsis": false,
+                "xinzangtinghou": false,
+                "xinyuanxiuke": false,
+                "zhudongmailiu": false,
+                "duofashang": false,
+                "naowaishang": false,
+                "dianxianfazuo": false,
+                "naochuxueich": false,
+                "daixiexingshenxing": false,
+                "huxixitong": false,
+                "shenjingxitong": false,
+                "xinxueguanxitong": false,
+                "weicangdao": false,
+                "yaowuguoliang": false,
+                "tangniaobing": false,
+                "xiaohuadaochuxue": false,
+                "duofashangShouShu": false,
+                "jiZhen": false,
+                "manxingxinxueguan": false,
+                "waizhouxueguan": false,
+                "xinbanmo": false,
+                "zhongliukailu": false,
+                "shenzhonglius": false,
+                "shenyizhi": false,
+                "naowaishangShouShu": false,
+                "xiongbuzhongliu": false,
+                "zhuibanqiechu": false,
+                "shixuexiuke": false,
+                "naochuxue": false,
+                "xiaohuachuxue": false,
+                "xiaohuazhongliu": false,
+                "shuhouhuxi": false,
+                "xiaohuachuankong": false,
+                "nongduzheng": false,
+                "xinzangzhouting": false,
+                "huxizhouting": false,
+                "shenjingxitongShouShu": false,
+                "xinxueguan": false,
+                "huxixitongShouShu": false,
+                "weicangdaoShouShu": false,
+                "daixiexing": false
+            }
+        },
+        "_class": "com.digixmed.icu.smartcare.database.entitys.nurseScore.Score"
+    }
+})

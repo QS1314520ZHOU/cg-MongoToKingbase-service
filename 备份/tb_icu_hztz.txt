@@ -1,0 +1,47 @@
+ SELECT 'H50010400021'::text AS cyljgdm,
+    '重钢总医院'::text AS cyljgmc,
+    p.hispid AS chzbs,
+    p.name AS czhxm,
+    p.mrn AS czyh,
+    b.pid AS cpid,
+    b."time" AS dcssj,
+    max(
+        CASE
+            WHEN b.code = 'param_T'::text THEN b.strval
+            ELSE NULL::text
+        END) AS ftw,
+    max(
+        CASE
+            WHEN b.code = 'param_脉搏'::text THEN b.strval
+            ELSE NULL::text
+        END) AS fmb,
+    max(
+        CASE
+            WHEN b.code = 'param_nibp_s'::text THEN b.strval
+            ELSE NULL::text
+        END) AS fnxssy,
+    max(
+        CASE
+            WHEN b.code = 'param_nibp_d'::text THEN b.strval
+            ELSE NULL::text
+        END) AS fnxszy,
+    max(
+        CASE
+            WHEN b.code = 'param_spo2'::text THEN b.strval
+            ELSE NULL::text
+        END) AS fxybhd,
+    max(
+        CASE
+            WHEN b.code = 'param_resp'::text THEN b.strval
+            ELSE NULL::text
+        END) AS fhx,
+    max(
+        CASE
+            WHEN b.code = 'param_HR'::text THEN b.strval
+            ELSE NULL::text
+        END) AS fxl
+   FROM bedside b
+     LEFT JOIN patient p ON b.pid = p.mongo_id
+  WHERE (b.code = ANY (ARRAY['param_T'::text, 'param_脉搏'::text, 'param_nibp_s'::text, 'param_nibp_d'::text, 'param_spo2'::text, 'param_resp'::text, 'param_HR'::text])) AND b.valid = true
+  GROUP BY b.pid, b."time", p.hispid, p.name, p.mrn
+  ORDER BY b.pid, b."time"

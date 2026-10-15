@@ -1,0 +1,35 @@
+ SELECT 'H50010400021'::text AS cyljgdm,
+    '重钢总医院'::text AS cyljgmc,
+    patient.mongo_id AS cjlid,
+    patient.hospitaltime::smallint AS irkcs,
+    patient.hispid AS chzbs,
+    patient.name AS chzxm,
+        CASE
+            WHEN patient.gender = 'Male'::text THEN '1'::text
+            WHEN patient.gender = 'Female'::text THEN '2'::text
+            ELSE NULL::text
+        END AS cxbdm,
+        CASE
+            WHEN patient.gender = 'Male'::text THEN '男'::text
+            WHEN patient.gender = 'Female'::text THEN '女'::text
+            ELSE patient.gender
+        END AS cxbmc,
+    patient.birthday AS dcsrq,
+    patient.mrn AS czyh,
+    patient.hisbed AS cbch,
+    patient.deptcode AS cicubqdm,
+    patient.dept AS cicubqmc,
+    patient.beddoctorid AS czzhysdm,
+    patient.bedphysician AS czzhysqm,
+    NULL::text AS brksgrxxk,
+    NULL::text AS b3xsjshzl,
+    NULL::text AS b6xsjshzl,
+    patient.icudischargetime AS dckrqsj,
+    patient.dischargeddepartmentcode AS chzqxdm,
+    patient.dischargeddepartment AS chzqxmc,
+    patient.chiefcomplaint AS cbz,
+    patient.createdtime AS dsjcjsj,
+    patient.mongotokingdate AS dsjzlsj,
+    true AS bsjzt
+   FROM patient
+  WHERE patient.status = 'discharged'::text AND patient.icudischargetime IS NOT NULL

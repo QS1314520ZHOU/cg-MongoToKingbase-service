@@ -43,3 +43,7 @@ lib/
 
 # 敏感配置文件（包含密码）
 src/main/resources/application.yml
+/application.yml
+
+# 本地助手工作目录
+.workbuddy/

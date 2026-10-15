@@ -22,6 +22,13 @@ public class MongoReaderService {
     // 已确保创建过索引的集合缓存，避免每批重复调用 createIndex
     private final Set<String> indexEnsured = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    /** 校验「水位线字段」类型时的抽样条数：抽到任意一条非 Date 就判定不可用 */
+    private static final int WATERMARK_TYPE_SAMPLE = 200;
+
+    /** 「水位线字段不可用」的否定结论缓存（key = collection#field） */
+    private final java.util.concurrent.ConcurrentHashMap<String, Boolean> watermarkUnusableCache
+            = new java.util.concurrent.ConcurrentHashMap<>();
+
     /**
      * 获取所有集合名称
      */
@@ -100,14 +107,15 @@ public class MongoReaderService {
             if (value == null) {
                 fieldTypes.putIfAbsent(fieldName, "null");
             } else if (value instanceof Document) {
-                extractFieldTypes((Document) value, fieldName, fieldTypes, allFields);
+                // 嵌套Document不再递归展开子字段：整体作为object类型（建表为TEXT列，写入时序列化JSON）
+                fieldTypes.putIfAbsent(fieldName, "object");
             } else if (value instanceof List) {
                 List<?> list = (List<?>) value;
                 if (!list.isEmpty()) {
                     Object firstElement = list.get(0);
                     if (firstElement instanceof Document) {
+                        // 嵌套Document数组不再递归展开：整体作为array<document>类型（TEXT列，写入时序列化JSON）
                         fieldTypes.put(fieldName, "array<document>");
-                        extractFieldTypes((Document) firstElement, fieldName + "[]", fieldTypes, allFields);
                     } else {
                         fieldTypes.put(fieldName, "array<" + getJavaType(firstElement) + ">");
                     }
@@ -324,6 +332,81 @@ public class MongoReaderService {
     }
 
     /**
+     * 判断某个字段能否作为「增量水位线」使用。
+     *
+     * 不仅要字段存在，还要它的**值是 BSON 日期**。
+     *
+     * 【为什么必须查类型 / 血的教训】
+     * 若 editTime 存的是字符串（例："2026-10-07T11:12:50.217830874"），
+     * 增量查询 {@code {"editTime": {"$gt": <java.util.Date>}}} 会因为
+     * MongoDB 的 BSON 类型排序是
+     *   MinKey < Null < Number < String < Object < Array < BinData < ObjectId < Boolean < Date
+     * 即 **String 恒小于 Date**，导致该查询**永远返回 0 条**。
+     * 表现为：这张表从此再也同步不到任何数据，而且**全程没有任何报错**，
+     * 只有对比行数才能发现。
+     * 实测 2026-10-08：fallDangerFormExtra / selfCareFormExtra / ydwzl_form_extra 三张表中招。
+     *
+     * @return true 才能启用增量模式；任何异常/不确定都返回 false，
+     *         退化为「全表读 + 哈希比对」，速度慢一些但结果永远正确。
+     */
+    public boolean isUsableWatermarkField(String collectionName, String field) {
+        if (field == null || field.isEmpty()) {
+            return false;
+        }
+        String cacheKey = collectionName + "#" + field;
+        // 只缓存「不可用」的否定结论：
+        //   ① 每 5 分钟一轮，否定的表没必要反复抽样复查；
+        //   ② 更不会每轮都重复打同一条 WARN 把日志刷爆（3 张表 × 288 轮/天 ≈ 864 行）；
+        //   ③ 缓存否定方向永远是安全的 —— 退化为哈希比对只是慢一点，结果一定正确。
+        // 肯定结论不缓存，保留「源端类型某天变回 Date 就能自动切回增量模式」的能力。
+        if (Boolean.TRUE.equals(watermarkUnusableCache.get(cacheKey))) {
+            return false;
+        }
+        boolean usable = probeWatermarkField(collectionName, field);
+        if (!usable) {
+            watermarkUnusableCache.put(cacheKey, Boolean.TRUE);
+        }
+        return usable;
+    }
+
+    private boolean probeWatermarkField(String collectionName, String field) {
+        if (field == null || field.isEmpty()) {
+            return false;
+        }
+        try {
+            MongoCollection<Document> collection = mongoDatabase.getCollection(collectionName);
+            MongoCursor<Document> cursor = collection
+                    .find(new Document(field, new Document("$exists", true)))
+                    .projection(new Document(field, 1))
+                    .limit(WATERMARK_TYPE_SAMPLE)
+                    .iterator();
+            int checked = 0;
+            try {
+                while (cursor.hasNext()) {
+                    Object value = cursor.next().get(field);
+                    checked++;
+                    // null 视为「无值」跳过；只要出现非 Date 的值就判定不能做水位线
+                    if (value != null && !(value instanceof java.util.Date)) {
+                        logger.warn("Collection {}: field '{}' is {} (NOT a BSON date), sample={}. "
+                                + "Incremental watermark is unusable (String < Date in BSON order "
+                                + "would make the $gt query always return 0) -> fallback to full-read + hash comparison. "
+                                + "(this warning is logged only once per startup)",
+                                collectionName, field, value.getClass().getSimpleName(), value);
+                        return false;
+                    }
+                }
+            } finally {
+                cursor.close();
+            }
+            return checked > 0;
+        } catch (Exception e) {
+            logger.warn("Failed to verify watermark field '{}' on {}: {} -> fallback to hash comparison",
+                    field, collectionName, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * 获取集合的所有字段名（统一转换为小写，避免大小写重复）
      */
     public Set<String> getCollectionFields(String collectionName) {
@@ -350,16 +433,16 @@ public class MongoReaderService {
     }
 
     /**
-     * 递归提取所有字段
+     * 提取顶层字段（不递归展开嵌套Document）。
+     * 嵌套值由写入侧（KingbaseWriterService.extractValue）序列化为JSON存入TEXT列。
+     * 原因：不同文档的嵌套路径（数组下标/子键不同）展开后经列名sanitize会坍缩成
+     * 同一列名（如 toothscore_toothmap____8 specified more than once），导致建表失败、整表漏同步。
      */
     private void extractAllFields(Document doc, String prefix, Set<String> fields) {
         for (Map.Entry<String, Object> entry : doc.entrySet()) {
             String fieldName = prefix.isEmpty() ? entry.getKey() : prefix + "." + entry.getKey();
             fields.add(fieldName);
-
-            if (entry.getValue() instanceof Document) {
-                extractAllFields((Document) entry.getValue(), fieldName, fields);
-            }
+            // 不再递归：嵌套Document整体保留，写入时转JSON
         }
     }
 }
